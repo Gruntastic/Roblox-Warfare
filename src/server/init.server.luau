@@ -23,4 +23,4 @@ end
 for _, service in order do
 	task.spawn((service :: any).start)
 end
-print("[CallOfRoblox] server started")
+print("[BloxOps] server started")

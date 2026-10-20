@@ -1392,7 +1392,7 @@ local function buildTopBar(parent: Instance)
 		Size = UDim2.new(1, -96, 0, 88),
 		Parent = parent,
 	})
-	-- Original text logo: stacked "CALL OF" / "ROBLOX" with an accent chevron bar.
+	-- Original text logo: stacked "ROBLOX" / "BLOX OPS" with an accent chevron bar.
 	local logo: Frame = Theme.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(460, 88), Parent = top })
 	Theme.new("Frame", {
 		BackgroundColor3 = C.Accent,
@@ -1402,7 +1402,7 @@ local function buildTopBar(parent: Instance)
 		Parent = logo,
 	})
 	Theme.label({
-		Text = "C A L L   O F",
+		Text = "R O B L O X",
 		Font = Theme.Fonts.Bold,
 		TextSize = 18,
 		TextColor3 = C.Accent,
@@ -1411,7 +1411,7 @@ local function buildTopBar(parent: Instance)
 		Parent = logo,
 	})
 	Theme.label({
-		Text = "ROBLOX",
+		Text = "BLOX OPS",
 		Font = Theme.Fonts.Title,
 		TextSize = 56,
 		TextColor3 = C.Text,

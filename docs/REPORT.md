@@ -30,7 +30,7 @@ Static checks: `luau-lsp analyze` in strict mode over all of `src/` reports no e
 
 | Area | Result | Evidence |
 |---|---|---|
-| Server boot, service init order | Pass | Console: `[CallOfRoblox] server started`, no script errors |
+| Server boot, service init order | Pass | Console: `[CallOfRoblox] server started` (now `[BloxOps]`), no script errors |
 | DataStore fallback when unpublished | Pass | Console warning plus the red in-lobby banner; profiles marked temporary |
 | Phase loop Lobby → Countdown → Playing → Results → Lobby | Pass, twice | Console phase log |
 | Spawn on team base, frozen during countdown, unfrozen at start | Pass | Server state read, Frozen attribute |
@@ -251,8 +251,7 @@ touches still need a phone or the device emulator). The Great Hall is visibly li
 - During the Phase 4 playtest Studio stopped drawing the 3D view for a few minutes (white screen,
   HUD still drawn; exposure changes had no effect). It recovered on its own and happened on two
   maps, so it is treated as a Studio/display issue on the test machine, not a game bug (07).
-- The game title "Call of Roblox" still needs the trademark and policy review called for in the brief
-  before any public release.
+- The game was renamed to "Roblox Blox Ops" (2026-10-20). The title check is in LAUNCH_READINESS.
 - Studio sync is done through MCP scripts, not the Rojo plugin. `tools/studio_patch.py` sends only
   changed hunks with checksum verification, and `tools/studio_verify.py` audits the whole tree.
 

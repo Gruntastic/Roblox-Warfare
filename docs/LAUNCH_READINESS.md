@@ -22,9 +22,12 @@ defect. They are things that have not been exercised yet.
 
 ## Launch blockers (owner)
 
-1. **Title and branding review.** "Call of Roblox" closely echoes an existing franchise name. The
-   brief asked for a trademark and policy review before release. A rename is the safe default.
-   The name is only used in UI text and docs, so a rename is cheap.
+1. **Title check.** The game is now called "Roblox Blox Ops" (owner's choice, 2026-10-20). Two
+   points to confirm before release. (a) Roblox's brand guidelines limit using the "Roblox" name in
+   ways that could suggest the game is official or endorsed by Roblox. Check the current guidelines
+   for experience titles. (b) "Blox Ops" is close to "Black Ops", a Call of Duty sub-brand. The
+   title appears only in the lobby logo, the README and the project name, so another rename stays
+   cheap.
 2. **Publish the place and enable Studio access to API services.** DataStore persistence (save,
    rejoin, session lock across servers, BindToClose) has only run in its in-memory fallback.
 3. **Create the Founder Pack developer product** and set its id in `src/shared/Config/Store.luau`.

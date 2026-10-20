@@ -5,7 +5,7 @@ Date: 2026-10-20. Severity: **Blocker** (must fix or clear before launch), **Min
 
 | # | Severity | Issue | Status |
 |---|---|---|---|
-| 1 | Blocker | Title "Call of Roblox" needs a trademark and policy review (see LAUNCH_READINESS) | Owner |
+| 1 | Blocker | New title "Roblox Blox Ops": confirm use of "Roblox" in the name against Roblox brand guidelines, and the closeness of "Blox Ops" to "Black Ops" (see LAUNCH_READINESS) | Owner |
 | 2 | Blocker | DataStore persistence has never run for real (unpublished place, in-memory fallback) | Owner: publish and enable API access |
 | 3 | Blocker | Robux purchase never run end to end: the Founder Pack product id is 0 | Owner: create the product |
 | 4 | Blocker | Multiplayer combat, objectives contested by both teams, killstreaks and perks in fights are untested | Needs a 2+ player session |

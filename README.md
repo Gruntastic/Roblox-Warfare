@@ -1,4 +1,4 @@
-# Call of Roblox (working title)
+# Roblox Blox Ops
 
 An original, fast-paced multiplayer first-person shooter for Roblox. Working title is subject to
 a trademark and Roblox policy review before release. All code, geometry and branding in this
@@ -27,7 +27,7 @@ docs/                  Contracts, map design notes, QA checklist, phase reports
 ## Building
 Requires [Rojo](https://rojo.space) 7.4+ and [Lune](https://lune-org.github.io/docs) 0.8+.
 ```
-rojo build default.project.json -o CallOfRoblox.rbxl   # place file
+rojo build default.project.json -o RobloxBloxOps.rbxl   # place file
 rojo serve                                            # live-sync with the Rojo Studio plugin
 lune run tests/run.luau                               # unit tests
 ```
