@@ -48,8 +48,10 @@ def lstr(s):
     return "[" + "=" * level + "[\n" + s + "]" + "=" * level + "]"
 
 def hunks(a, b):
+    """(old, new) pairs in bottom-up order. Each old text is unique in `a`; hunks whose expanded
+    context would overlap are merged, so applying them bottom-up never touches edited text."""
     al, bl = a.splitlines(keepends=True), b.splitlines(keepends=True)
-    res = []
+    spans = []  # [lo, hi, j_lo, j_hi] in line indices
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, al, bl, autojunk=False).get_opcodes():
         if tag == "equal":
             continue
@@ -58,16 +60,27 @@ def hunks(a, b):
             old = "".join(al[lo:hi])
             if old and a.count(old) == 1:
                 break
-            if lo > 0:
-                lo -= 1
-            if hi < len(al):
-                hi += 1
             if lo == 0 and hi == len(al):
-                old = a
                 break
-        new = "".join(al[lo:i1]) + "".join(bl[j1:j2]) + "".join(al[i2:hi])
-        res.append((old, new))
+            lo, hi = max(lo - 1, 0), min(hi + 1, len(al))
+        # the context lines map 1:1 onto b around the changed region
+        jlo, jhi = j1 - (i1 - lo), j2 + (hi - i2)
+        if spans and lo <= spans[-1][1]:
+            spans[-1][1], spans[-1][3] = max(spans[-1][1], hi), max(spans[-1][3], jhi)
+        else:
+            spans.append([lo, hi, jlo, jhi])
+    res = []
+    for lo, hi, jlo, jhi in reversed(spans):
+        res.append(("".join(al[lo:hi]), "".join(bl[jlo:jhi])))
     return res
+
+def simulate(a, pairs):
+    for o, n in pairs:
+        i = a.find(o)
+        if i < 0:
+            return None
+        a = a[:i] + n + a[i + len(o):]
+    return a
 
 lua = ["local results = {}"]
 for rel in files:
@@ -79,10 +92,15 @@ for rel in files:
     for p in path[1:]:
         lua.append("inst = inst:FindFirstChild(%s) or error(%s)" % (json.dumps(p), json.dumps("missing " + ".".join(path))))
     lua.append("local src = inst.Source")
-    for o, n in hunks(old, new):
-        lua.append("do local o, n = %s, %s" % (lstr(o), lstr(n)))
-        lua.append("local i = string.find(src, o, 1, true) or error(%s)" % json.dumps("hunk not found in " + rel))
-        lua.append("src = string.sub(src, 1, i - 1) .. n .. string.sub(src, i + #o) end")
+    pairs = hunks(old, new)
+    if simulate(old, pairs) != new or sum(len(o) + len(n) for o, n in pairs) > len(new):
+        lua.append("src = %s" % lstr(new))  # patching would not reproduce the file, or costs more
+        print("full source:", rel)
+    else:
+        for o, n in pairs:
+            lua.append("do local o, n = %s, %s" % (lstr(o), lstr(n)))
+            lua.append("local i = string.find(src, o, 1, true) or error(%s)" % json.dumps("hunk not found in " + rel))
+            lua.append("src = string.sub(src, 1, i - 1) .. n .. string.sub(src, i + #o) end")
     lua.append("local h = 0 for k = 1, #src do h = (h * 31 + string.byte(src, k)) % 2147483647 end")
     lua.append("if h ~= %d then error(%s) end" % (checksum(new), json.dumps("checksum mismatch for " + rel)))
     lua.append("inst.Source = src table.insert(results, %s) end" % json.dumps(rel))
