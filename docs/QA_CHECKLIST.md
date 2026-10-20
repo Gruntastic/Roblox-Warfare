@@ -103,6 +103,14 @@ Tip: in Studio, `workspace:SetAttribute("QA_GrantLevels", 30)` unlocks everythin
 - [ ] Robux purchase end to end (needs the owner to create the developer product on the published game)
 - [ ] Equip a store camo in the Gunsmith and see it in a match
 
+## Polish, mobile and controller (Phase 7)
+- [x] Touch controls appear when deployed on touch (Studio: QA_ForceTouch); first layout overlapped the streak tray (01), fixed (02)
+- [x] Touch AIM toggles ADS, CROUCH toggles crouch (03); SWAP swaps; FIRE shoots (04, QA_TouchTap)
+- [x] Ashwood Estate Great Hall is lit by the chandelier and fireplaces (05)
+- [ ] Touch controls on a real phone or the Studio device emulator (button hit-testing with real touches)
+- [ ] Sentry health bar and Blackout hiding the objective strip (need kills, so 2 players)
+- [x] Gamepad bindings exist for fire (R2), ADS (L2), reload (X), swap (Y), melee (R3), sprint (L3), crouch (B), streak (D-pad up), interact (X on site); not yet tried on a physical controller
+
 ## Progression and persistence (published place)
 - [x] Match complete and time played XP are granted; the results breakdown matches
 - [x] The lobby rank bar reflects XP after returning from Results
@@ -124,3 +132,4 @@ Tip: in Studio, `workspace:SetAttribute("QA_GrantLevels", 30)` unlocks everythin
 | 2026-10-20 | 6ddafa8 → 13e75e8 | Claude (Studio via MCP, 1 client) | Phase 4 items marked ✓ | Pass, after 3 fixes |
 | 2026-10-20 | e334c3d → Phase 5 report commit | Claude (Studio via MCP, 1 client) | Phase 5 items marked ✓ | Pass, after 1 fix (Red Mesa spawn facing) |
 | 2026-10-20 | 3fc56a7 | Claude (Studio via MCP, 1 client) | Phase 6 items marked ✓ | Pass, no defects found |
+| 2026-10-20 | eecf596 | Claude (Studio via MCP, 1 client) | Phase 7 items marked ✓ | Pass, after 1 fix (touch layout) |

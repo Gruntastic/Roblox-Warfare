@@ -1,4 +1,4 @@
-# Status report: Phases 1–6
+# Status report: Phases 1–7
 
 Last updated: 2026-10-20. Phase 2 evidence: commit `8a766db`. Phase 3 evidence: the Phase 3 playtest commit and later. Phase 4 evidence: commit `13e75e8`. Phase 5 evidence: commit `e334c3d` and the Phase 5 report commit (screenshots in `docs/qa/phase5`).
 
@@ -219,6 +219,21 @@ state and the PolicyService lookup all worked (`docs/qa/phase6`). No defects wer
 Not yet exercised: a real Robux purchase (needs a developer product on the published game), and
 credits and crates earned through real matches.
 
+## Phase 7: polish, mobile and controller
+
+- Touch controls (`src/client/UI/TouchControls.luau`): FIRE (two, one per thumb), AIM (toggle),
+  RELOAD, SWAP, MELEE, CROUCH (toggle) and SPRINT (toggle), laid out in the Theme's scaled canvas
+  above the streak tray. They drive the same controller code as mouse and gamepad, so the server
+  sees identical requests. Movement and look use Roblox's default thumbstick and camera drag.
+- Blackout now also hides the objective strip (the plant / defuse prompt stays usable).
+- Sentry Guns show a health bar.
+- Ashwood Estate's Great Hall is lit (chandelier and fireplace lights).
+
+Executed with evidence: 305 specs pass, type check clean. In Studio with QA_ForceTouch the controls
+showed, the first layout overlapped the streak tray and was fixed, and AIM, CROUCH, SWAP and FIRE
+worked through the QA_TouchTap hook (a first-person locked mouse cannot press GUI buttons, so real
+touches still need a phone or the device emulator). The Great Hall is visibly lit (`docs/qa/phase7`).
+
 ## Known issues and notes
 
 - Studio prints `rbxassetid://203785492 … Asset type does not match` three times at play start. That
@@ -236,15 +251,11 @@ credits and crates earned through real matches.
 - During the Phase 4 playtest Studio stopped drawing the 3D view for a few minutes (white screen,
   HUD still drawn; exposure changes had no effect). It recovered on its own and happened on two
   maps, so it is treated as a Studio/display issue on the test machine, not a game bug (07).
-- Ashwood Estate's Great Hall interior is dark next to the other maps. Readable, but a lighting
-  polish item for Phase 7.
 - The game title "Call of Roblox" still needs the trademark and policy review called for in the brief
   before any public release.
 - Studio sync is done through MCP scripts, not the Rojo plugin. `tools/studio_patch.py` sends only
   changed hunks with checksum verification, and `tools/studio_verify.py` audits the whole tree.
 
-- Open UI items: the objectives strip and S&D prompt stay visible during Blackout, and the Sentry Gun
-  has no health bar.
 - The lobby operator list shows a player's old rank until the next roster refresh.
 
 ## Needs the owner
