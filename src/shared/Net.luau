@@ -20,6 +20,8 @@ Net.Events = {
 	"ActivateStreak", -- (id: string, aimDirection: Vector3?) use an earned killstreak; targeted ones aim from the server head position
 	"Prestige", -- (confirm: string) must be exactly "PRESTIGE"; only at max level, only outside a match
 	"EquipCosmetic", -- (kind: "Camo" | "Title" | "Emblem", id: string, weaponId: string?) camo needs weaponId; Emblem "" unequips
+	"BuyItem", -- (itemId: string) Config/Store shop item, paid with earned credits
+	"OpenCrate", -- (crateId: string) opens one earned crate
 	-- server -> client
 	"MatchState", -- (MatchStatePayload)
 	"KillFeed", -- (KillFeedPayload)
@@ -37,6 +39,7 @@ Net.Events = {
 	"StreakEvent", -- (kind: string, data: { [string]: any }) killstreak banners and effects, see docs/PHASE5_CONTRACT.md
 	"Ping", -- (PingPayload) Recon Drone pings, to the drone owner's team
 	"Mark", -- (victimUserId: number, seconds: number) Tracker perk, to the attacker only
+	"CrateOpened", -- (CrateResultPayload) to the opener
 }
 
 Net.Functions = {

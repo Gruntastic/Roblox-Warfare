@@ -71,7 +71,16 @@ export type Requirement = { text: string, progress: string, alpha: number }
 
 -- Unlock requirement of a camo for one weapon's progress ({ kills, headshots } or nil).
 -- "75 KILLS" / "42/75"; the mastery camo: "300 KILLS +100 HEADSHOTS" / "300/300 · 12/100".
+-- Where a store cosmetic comes from, for locked cards (nil for items earned by play).
+local SOURCE_TEXT: { [string]: string } = { shop = "STORE", crate = "SUPPLY CRATE", premium = "FOUNDER PACK" }
+function Phase5Rules.sourceText(source: string?): string?
+	return if source then SOURCE_TEXT[source] or "STORE" else nil
+end
+
 function Phase5Rules.camoRequirement(camo: any, weapon: any): Requirement
+	if camo.source then
+		return { text = Phase5Rules.sourceText(camo.source) :: string, progress = "", alpha = 0 }
+	end
 	local kills = if weapon and type(weapon.kills) == "number" then weapon.kills else 0
 	local heads = if weapon and type(weapon.headshots) == "number" then weapon.headshots else 0
 	local needK = camo.kills or 0
@@ -105,6 +114,9 @@ local STAT_NAMES: { [string]: string } = {
 
 -- Unlock requirement of a title for the lifetime stats in a ProfileSummary.
 function Phase5Rules.titleRequirement(title: any, stats: any): Requirement
+	if title.source then
+		return { text = Phase5Rules.sourceText(title.source) :: string, progress = Phase5Rules.sourceText(title.source) :: string, alpha = 0 }
+	end
 	if not title.stat then
 		return { text = "OWNED BY EVERYONE", progress = "", alpha = 1 }
 	end

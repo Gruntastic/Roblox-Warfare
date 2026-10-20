@@ -66,6 +66,15 @@ local function recordEvent(player: Player, event: ChallengeRules.Event)
 		profile.stats.dailies += 1
 		Net.event("Notify"):FireClient(player, ("Challenge complete: %s  +%d XP"):format(ChallengeRules.text(def), def.xp), "Challenge")
 	end
+	if #completed > 0 then
+		local allDone = true
+		for _, e in profile.challenges.daily do
+			allDone = allDone and e.done
+		end
+		for i = 1, #completed do
+			ProgressionService.reward(player, "challenge", allDone and i == #completed)
+		end
+	end
 	if changed then
 		DataService.markDirty(player)
 		ProgressionService.sync(player)
@@ -91,6 +100,7 @@ local function onPrestige(player: Player, confirm: any)
 	-- Account level and XP reset; weapon levels (and so attachment unlocks), stats and cosmetics
 	-- are untouched, and prestige > 0 keeps every weapon, perk and killstreak unlocked.
 	CosmeticRules.applyPrestige(profile)
+	ProgressionService.reward(player, "levels", 1) -- a prestige earns a supply crate like a level-up
 	DataService.markDirty(player)
 	task.spawn(DataService.saveNow, player) -- yields on the DataStore; the reply should not wait
 	Net.event("Notify"):FireClient(player, ("Prestige %d reached"):format(profile.account.prestige), "LevelUp")

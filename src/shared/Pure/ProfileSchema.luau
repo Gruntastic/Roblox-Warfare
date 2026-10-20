@@ -9,7 +9,7 @@ local DEFAULT_STREAKS = { "ReconDrone", "MortarBarrage" }
 ProfileSchema.DEFAULT_PERKS = DEFAULT_PERKS
 ProfileSchema.DEFAULT_STREAKS = DEFAULT_STREAKS
 
-ProfileSchema.VERSION = 4
+ProfileSchema.VERSION = 5
 
 export type WeaponProgress = { level: number, xp: number, kills: number, headshots: number }
 export type Loadout = {
@@ -39,13 +39,16 @@ export type Profile = {
 		defuses: number,
 		tags: number, -- Kill Confirmed tags collected (confirms and denies)
 		dailies: number, -- daily challenges completed
+		cratesOpened: number,
 	},
 	loadouts: { Loadout },
 	selectedLoadout: number,
 	challenges: { day: number, daily: { ChallengeEntry } },
 	equipped: Equipped,
-	inventory: { [string]: number }, -- "<Kind>:<id>" -> count, for items not earned by play (Phase 6)
-	processedReceipts: { [string]: number }, -- purchaseId -> unix time (Phase 6)
+	inventory: { [string]: number }, -- "<Kind>:<id>" -> count: store cosmetics (1) and unopened crates ("Crate:<id>")
+	processedReceipts: { [string]: number }, -- Robux purchaseId -> unix time it was granted
+	wallet: { credits: number }, -- earned by play only (Config/Store.luau)
+	dailyCrateDay: number, -- UTC day the all-dailies crate was last given
 	createdAt: number,
 	lastSeen: number,
 }
@@ -67,13 +70,15 @@ function ProfileSchema.default(now: number, loadoutSlots: number): Profile
 		version = ProfileSchema.VERSION,
 		account = { level = 1, xp = 0, prestige = 0 },
 		weapons = {},
-		stats = { kills = 0, deaths = 0, matches = 0, wins = 0, headshots = 0, assists = 0, captures = 0, plants = 0, defuses = 0, tags = 0, dailies = 0 },
+		stats = { kills = 0, deaths = 0, matches = 0, wins = 0, headshots = 0, assists = 0, captures = 0, plants = 0, defuses = 0, tags = 0, dailies = 0, cratesOpened = 0 },
 		loadouts = loadouts,
 		selectedLoadout = 1,
 		challenges = { day = 0, daily = {} },
 		equipped = { title = "Recruit", emblem = nil, camos = {} },
 		inventory = {},
 		processedReceipts = {},
+		wallet = { credits = 0 },
+		dailyCrateDay = 0,
 		createdAt = now,
 		lastSeen = now,
 	}
@@ -122,6 +127,12 @@ local MIGRATIONS: { [number]: (any) -> any } = {
 				end
 			end
 		end
+		return old
+	end,
+	-- v5 (Phase 6) added the credit wallet, crates opened and the daily crate marker. Filled with
+	-- defaults by `migrate`.
+	[4] = function(old)
+		old.version = 5
 		return old
 	end,
 }
@@ -254,11 +265,22 @@ function ProfileSchema.migrate(data: any, now: number, loadoutSlots: number, val
 		end
 	end
 	if type(data.inventory) == "table" then
-		d.inventory = data.inventory
+		for key, n in data.inventory do
+			if type(key) == "string" and #key <= 64 and type(n) == "number" and n == n and n >= 1 then
+				d.inventory[key] = math.min(math.floor(n), 1000)
+			end
+		end
 	end
 	if type(data.processedReceipts) == "table" then
-		d.processedReceipts = data.processedReceipts
+		for id, t in data.processedReceipts do
+			if type(id) == "string" and #id <= 128 and type(t) == "number" and t == t then
+				d.processedReceipts[id] = t
+			end
+		end
 	end
+	local wallet = type(data.wallet) == "table" and data.wallet or {}
+	d.wallet = { credits = math.floor(num(wallet.credits, 0, 0, 1000000)) }
+	d.dailyCrateDay = math.floor(num(data.dailyCrateDay, 0, 0))
 	d.createdAt = num(data.createdAt, now)
 	d.lastSeen = num(data.lastSeen, now)
 	return d, changed

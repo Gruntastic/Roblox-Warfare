@@ -403,7 +403,7 @@ local function renderCosmetics(profile: Types.ProfileSummary)
 	sectionTitle("TITLES  //  SHOWN UNDER YOUR NAME", left)
 	local list = scroll(left, { Position = UDim2.fromOffset(0, 34), Size = UDim2.new(1, 0, 1, -34) }, 8)
 	for i, t in CosmeticsConfig.titles do
-		local owned = owns(profile, "titles", t.id) or t.stat == nil
+		local owned = owns(profile, "titles", t.id) or (t.stat == nil and t.source == nil)
 		local isOn = equippedT == t.id
 		local card = Theme.button({ Name = t.id, Size = UDim2.new(1, -8, 0, 64), LayoutOrder = i, Parent = list })
 		Theme.setButtonColor(card, if isOn then C.PanelHover elseif owned then C.PanelLight else C.Locked)
@@ -518,7 +518,7 @@ local function renderCosmetics(profile: Types.ProfileSummary)
 			Parent = card,
 		})
 		Theme.label({
-			Text = if isOn then "EQUIPPED" elseif owned then "EQUIP" elseif def then "REACH PRESTIGE " .. tostring(def.prestige) else "",
+			Text = if isOn then "EQUIPPED" elseif owned then "EQUIP" elseif def and def.source then Phase5Rules.sourceText(def.source) :: string elseif def then "REACH PRESTIGE " .. tostring(def.prestige) else "",
 			Font = Theme.Fonts.Bold,
 			TextSize = 12,
 			TextColor3 = if isOn then C.Accent else C.TextDim,
@@ -555,7 +555,7 @@ local function renderPrestige(profile: Types.ProfileSummary)
 	-- current prestige (left)
 	local left: Frame = Theme.new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(0.36, 0, 1, 0), Parent = panel })
 	sectionTitle("CURRENT", left)
-	local currentId = Phase5Rules.prestigeEmblem(acc.prestige, #CosmeticsConfig.emblems)
+	local currentId = Phase5Rules.prestigeEmblem(acc.prestige, Progression.MaxPrestige)
 	local badge = Theme.emblemBadge(currentId, 160, { Position = UDim2.fromOffset(0, 40), Parent = left })
 	if not badge then
 		Theme.new("Frame", {
@@ -614,7 +614,7 @@ local function renderPrestige(profile: Types.ProfileSummary)
 		Size = UDim2.new(1, 0, 0, 84),
 		Parent = right,
 	})
-	local nextId = Phase5Rules.prestigeEmblem(acc.prestige + 1, #CosmeticsConfig.emblems)
+	local nextId = Phase5Rules.prestigeEmblem(acc.prestige + 1, Progression.MaxPrestige)
 	local nextDef = if nextId and acc.prestige < maxPrestige then CosmeticsConfig.emblemById[nextId] else nil
 	if nextDef then
 		local row: Frame = Theme.new("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 128), Size = UDim2.new(1, 0, 0, 56), Parent = right })

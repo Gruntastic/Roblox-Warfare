@@ -10,6 +10,7 @@ local order: { any } = {
 	require(Services.DataService),
 	require(Services.ProgressionService),
 	require(Services.ChallengeService),
+	require(Services.StoreService),
 	require(Services.CombatService),
 	require(Services.KillstreakService),
 	require(Services.MatchService),

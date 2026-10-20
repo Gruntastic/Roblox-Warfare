@@ -169,6 +169,24 @@ export type ProfileSummary = {
 	cosmetics: CosmeticsView,
 	canPrestige: boolean,
 	maxPrestige: number,
+	-- Phase 6
+	store: StoreView,
+}
+
+-- Phase 6 store state, part of ProfileSummary.
+export type StoreView = {
+	credits: number,
+	crates: { [string]: number }, -- crate id -> unopened count
+	premiumOwned: { string }, -- premium bundle ids fully owned
+	paidRandomItemsRestricted: boolean, -- PolicyService for this player (nothing paid is random either way)
+}
+
+-- Sent on `CrateOpened` to the opener.
+export type CrateResultPayload = {
+	crateId: string,
+	kind: string?, -- "Camo" | "Title" | "Emblem"; nil when the crate gave credits
+	id: string?,
+	credits: number,
 }
 
 export type MatchResultsPayload = {

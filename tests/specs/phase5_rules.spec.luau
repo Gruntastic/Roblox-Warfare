@@ -260,10 +260,16 @@ describe("CosmeticRules", function()
 		local factory = WeaponModel.build(Weapons.VK7, { camo = "Factory" })
 		expect(factory:FindFirstChild("Receiver").Color).toBe(plain:FindFirstChild("Receiver").Color)
 	end)
-	it("catalogue ids are unique and there are ten prestige emblems", function()
-		expect(#Cosmetics.emblems).toBe(10)
-		local seen = {}
+	it("catalogue ids are unique per kind and there are ten prestige emblems", function()
+		local prestige = 0
+		for _, e in Cosmetics.emblems do
+			if e.source == nil then
+				prestige += 1
+			end
+		end
+		expect(prestige).toBe(10)
 		for _, list in { Cosmetics.camos, Cosmetics.titles, Cosmetics.emblems } do
+			local seen = {}
 			for _, item in list do
 				expect(seen[item.id]).toBe(nil)
 				seen[item.id] = true

@@ -22,6 +22,9 @@ function CosmeticRules.ownsCamo(profile: any, weaponId: string, camoId: string):
 	if inInventory(profile, "Camo", camoId) then
 		return true
 	end
+	if def.source then
+		return false -- store items are owned only through the inventory
+	end
 	local w = profile.weapons and profile.weapons[weaponId]
 	local kills = if w then w.kills or 0 else 0
 	local headshots = if w then w.headshots or 0 else 0
@@ -33,7 +36,13 @@ function CosmeticRules.ownsTitle(profile: any, titleId: string): boolean
 	if not def then
 		return false
 	end
-	if not def.stat or inInventory(profile, "Title", titleId) then
+	if inInventory(profile, "Title", titleId) then
+		return true
+	end
+	if def.source then
+		return false
+	end
+	if not def.stat then
 		return true
 	end
 	local stats = profile.stats or {}
@@ -45,7 +54,10 @@ function CosmeticRules.ownsEmblem(profile: any, emblemId: string): boolean
 	if not def then
 		return false
 	end
-	return (profile.account and profile.account.prestige or 0) >= def.prestige or inInventory(profile, "Emblem", emblemId)
+	if inInventory(profile, "Emblem", emblemId) then
+		return true
+	end
+	return def.source == nil and (profile.account and profile.account.prestige or 0) >= def.prestige
 end
 
 -- Everything a profile owns, for the client: camos per weapon id in `weaponIds`.

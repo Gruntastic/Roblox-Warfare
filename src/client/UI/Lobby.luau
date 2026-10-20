@@ -13,6 +13,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Theme = require(script.Parent.Theme)
 local Gunsmith = require(script.Parent.Gunsmith)
 local Barracks = require(script.Parent.Barracks)
+local StoreMenu = require(script.Parent.Store)
+local StoreRulesUI = require(script.Parent.StoreRulesUI)
 local Phase5Rules = require(script.Parent.Phase5Rules)
 local ClientState = require(script.Parent.Parent.ClientState)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -79,6 +81,7 @@ local rankBadge: Frame
 local rankEmblemHolder: Frame
 local barracksButton: TextButton
 local barracksSub: TextLabel
+local storeSub: TextLabel
 local tabButtons: { [string]: TextButton } = {}
 local warningBanner: Frame
 local modeLabel: TextLabel
@@ -331,7 +334,7 @@ local function refreshRank()
 	for _, child in rankEmblemHolder:GetChildren() do
 		child:Destroy()
 	end
-	local emblemId = Phase5Rules.prestigeEmblem(acc.prestige, #Theme.Cosmetics.emblems)
+	local emblemId = Phase5Rules.prestigeEmblem(acc.prestige, 10)
 	local emblem = Theme.emblemBadge(emblemId, 26, { Parent = rankEmblemHolder })
 	rankEmblemHolder.Visible = emblem ~= nil
 	rankBadge.BackgroundColor3 = C.Accent
@@ -350,6 +353,11 @@ local function refreshRank()
 	barracksSub.Text = if total > 0 then string.format("DAILIES %d/%d", done, total) else "CHALLENGES · CAREER"
 	if (profile :: any).canPrestige == true then
 		barracksSub.Text = "PRESTIGE AVAILABLE"
+	end
+	local store = (profile :: any).store
+	if type(store) == "table" and type(store.credits) == "number" then
+		local crates = if type(store.crates) == "table" then store.crates.Supply or 0 else 0
+		storeSub.Text = StoreRulesUI.credits(store.credits) .. (if crates > 0 then string.format("  ·  %d CRATE%s", crates, if crates == 1 then "" else "S") else "")
 	end
 end
 
@@ -1362,6 +1370,7 @@ local function setShown(show: boolean)
 	else
 		Gunsmith.close() -- e.g. the match deploys while the Gunsmith is open
 		Barracks.close()
+		StoreMenu.close()
 		gui.Enabled = false
 	end
 end
@@ -1502,8 +1511,51 @@ local function buildTopBar(parent: Instance)
 		Size = UDim2.new(1, 0, 0, 16),
 		Parent = barracksButton,
 	})
+	-- Phase 6: STORE (shop, supply crates, premium bundles)
+	local storeButton = Theme.button({
+		Name = "StoreButton",
+		Text = "",
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -628, 0, 6),
+		Size = UDim2.fromOffset(220, 76),
+		Parent = top,
+	})
+	Theme.stroke(C.Accent, 1, 0.35).Parent = storeButton
+	Theme.label({
+		Text = "STORE",
+		Font = Theme.Fonts.Title,
+		TextSize = 22,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(0, 12),
+		Size = UDim2.new(1, 0, 0, 28),
+		Parent = storeButton,
+	})
+	storeSub = Theme.label({
+		Text = "SHOP · CRATES",
+		Font = Theme.Fonts.Bold,
+		TextSize = 12,
+		TextColor3 = C.Accent,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(0, 44),
+		Size = UDim2.new(1, 0, 0, 16),
+		Parent = storeButton,
+	})
+	storeButton.Activated:Connect(function()
+		if Gunsmith.isOpen() or Barracks.isOpen() or StoreMenu.isOpen() then
+			return
+		end
+		local opened = StoreMenu.open(function()
+			if shown then
+				mainFrame.Visible = true
+			end
+		end)
+		if opened then
+			mainFrame.Visible = false
+		end
+	end)
+
 	barracksButton.Activated:Connect(function()
-		if Gunsmith.isOpen() or Barracks.isOpen() then
+		if Gunsmith.isOpen() or Barracks.isOpen() or StoreMenu.isOpen() then
 			return
 		end
 		local opened = Barracks.open(nil, function()

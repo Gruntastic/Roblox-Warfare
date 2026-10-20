@@ -20,6 +20,8 @@ local PerkRules = require(Shared.Pure.PerkRules)
 local StreakRules = require(Shared.Pure.StreakRules)
 local ChallengeRules = require(Shared.Pure.ChallengeRules)
 local CosmeticRules = require(Shared.Pure.CosmeticRules)
+local Store = require(Shared.Config.Store)
+local StoreRules = require(Shared.Pure.StoreRules)
 local DataService = require(script.Parent.DataService)
 local ChallengeEvents = require(script.Parent.ChallengeEvents)
 
@@ -124,6 +126,31 @@ end
 -- Always call it through the table (ProgressionService.recordEvent) so the replacement is used.
 function ProgressionService.recordEvent(_player: Player, _event: ChallengeRules.Event) end
 
+-- Phase 6 hook for play rewards (credits and supply crates). Implemented by StoreService, which
+-- replaces it in its init(). kind: "levels" (data = levels gained), "match" (data = won),
+-- "challenge" (data = true when every daily challenge is now done).
+function ProgressionService.reward(_player: Player, _kind: string, _data: any) end
+
+local function storeView(player: Player, profile: any): Types.StoreView
+	local crates = {}
+	for _, c in Store.crates do
+		crates[c.id] = StoreRules.crates(profile, c.id)
+	end
+	local premiumOwned = {}
+	for _, b in Store.premium do
+		if StoreRules.ownsBundle(profile, b) then
+			table.insert(premiumOwned, b.id)
+		end
+	end
+	return {
+		credits = profile.wallet.credits,
+		crates = crates,
+		premiumOwned = premiumOwned,
+		-- set by StoreService from PolicyService; unknown counts as restricted
+		paidRandomItemsRestricted = player:GetAttribute("PaidRandomItemsRestricted") ~= false,
+	}
+end
+
 function ProgressionService.summary(player: Player): Types.ProfileSummary?
 	local profile = DataService.getProfile(player)
 	if not profile then
@@ -185,6 +212,7 @@ function ProgressionService.summary(player: Player): Types.ProfileSummary?
 		},
 		canPrestige = CosmeticRules.canPrestige(profile, Progression.MaxAccountLevel, Progression.MaxPrestige),
 		maxPrestige = Progression.MaxPrestige,
+		store = storeView(player, profile),
 	}
 end
 
@@ -233,6 +261,7 @@ local function grant(player: Player, accountAmount: number, reason: string, weap
 	Net.event("XPGain"):FireClient(player, payload)
 	if gained > 0 then
 		Net.event("Notify"):FireClient(player, ("LEVEL %d REACHED"):format(profile.account.level), "LevelUp")
+		ProgressionService.reward(player, "levels", gained)
 	end
 	if weaponGained > 0 and weaponId then
 		Net.event("Notify"):FireClient(player, ("%s LEVEL %d"):format(Weapons[weaponId].displayName, weaponProgress and weaponProgress.level or 0), "LevelUp")
@@ -344,6 +373,7 @@ function ProgressionService.endMatch(player: Player, secondsPlayed: number, won:
 		if won then
 			ProgressionService.recordEvent(player, { kind = "win" })
 		end
+		ProgressionService.reward(player, "match", won)
 	end
 	local l = ledger(player)
 	local breakdown = {}

@@ -2,7 +2,8 @@
 -- Cosmetic catalogue: weapon camos, player titles and prestige emblems. Cosmetics never change
 -- gameplay. Everything here is earned by play and ownership is DERIVED from progress
 -- (Pure/CosmeticRules.luau), so nothing has to be granted or stored when it is earned.
--- `profile.inventory` is reserved for items obtained another way (the Phase 6 store).
+-- Items with a `source` ("shop", "crate" or "premium") are not earned by progress: they are owned
+-- only through an inventory entry "<Kind>:<id>" granted by the store (Config/Store.luau).
 
 export type CamoDef = {
 	id: string,
@@ -14,6 +15,7 @@ export type CamoDef = {
 	color: Color3,
 	material: Enum.Material,
 	accent: Color3?,
+	source: string?, -- nil = earned by kills; otherwise owned only through the inventory
 }
 
 export type TitleDef = {
@@ -23,6 +25,7 @@ export type TitleDef = {
 	stat: string?,
 	value: number?,
 	description: string,
+	source: string?,
 }
 
 export type EmblemDef = {
@@ -31,6 +34,7 @@ export type EmblemDef = {
 	prestige: number, -- owned once the player has reached this prestige
 	color: Color3,
 	glyph: string, -- short text drawn on the badge
+	source: string?, -- nil = prestige emblem; otherwise owned only through the inventory
 }
 
 local camos: { CamoDef } = {
@@ -40,6 +44,14 @@ local camos: { CamoDef } = {
 	{ id = "UrbanHex", name = "Urban Hex", kills = 150, color = Color3.fromRGB(110, 114, 122), material = Enum.Material.DiamondPlate, accent = Color3.fromRGB(64, 66, 72) },
 	{ id = "ArcticTiger", name = "Arctic Tiger", kills = 300, color = Color3.fromRGB(214, 222, 232), material = Enum.Material.Snow, accent = Color3.fromRGB(92, 104, 120) },
 	{ id = "Gilded", name = "Gilded", kills = 300, headshots = 100, color = Color3.fromRGB(212, 168, 64), material = Enum.Material.Foil, accent = Color3.fromRGB(150, 110, 36) },
+	-- Phase 6 store camos: one purchase covers every weapon
+	{ id = "Obsidian", name = "Obsidian", kills = 0, source = "shop", color = Color3.fromRGB(24, 24, 30), material = Enum.Material.Glass, accent = Color3.fromRGB(70, 60, 110) },
+	{ id = "Cobalt", name = "Cobalt", kills = 0, source = "shop", color = Color3.fromRGB(40, 80, 160), material = Enum.Material.SmoothPlastic, accent = Color3.fromRGB(24, 40, 80) },
+	{ id = "Ember", name = "Ember", kills = 0, source = "shop", color = Color3.fromRGB(190, 70, 30), material = Enum.Material.CrackedLava, accent = Color3.fromRGB(60, 24, 16) },
+	{ id = "RustBloom", name = "Rust Bloom", kills = 0, source = "crate", color = Color3.fromRGB(150, 80, 50), material = Enum.Material.CorrodedMetal, accent = Color3.fromRGB(90, 60, 40) },
+	{ id = "Tidewater", name = "Tidewater", kills = 0, source = "crate", color = Color3.fromRGB(50, 120, 130), material = Enum.Material.Slate, accent = Color3.fromRGB(30, 70, 80) },
+	{ id = "Sandstorm", name = "Sandstorm", kills = 0, source = "crate", color = Color3.fromRGB(200, 170, 120), material = Enum.Material.Sandstone, accent = Color3.fromRGB(150, 120, 80) },
+	{ id = "Founder", name = "Founder", kills = 0, source = "premium", color = Color3.fromRGB(30, 34, 40), material = Enum.Material.Metal, accent = Color3.fromRGB(255, 176, 32) },
 }
 
 local titles: { TitleDef } = {
@@ -54,6 +66,11 @@ local titles: { TitleDef } = {
 	{ id = "WireCutter", name = "Wire Cutter", stat = "defuses", value = 10, description = "Defuse 10 bombs." },
 	{ id = "Collector", name = "Collector", stat = "tags", value = 100, description = "Collect 100 tags in Kill Confirmed." },
 	{ id = "DailyDriver", name = "Daily Driver", stat = "dailies", value = 30, description = "Complete 30 daily challenges." },
+	{ id = "Quartermaster", name = "Quartermaster", source = "shop", description = "Bought in the store." },
+	{ id = "Scrapper", name = "Scrapper", source = "crate", description = "Found in a supply crate." },
+	{ id = "NightOwl", name = "Night Owl", source = "crate", description = "Found in a supply crate." },
+	{ id = "LuckyCharm", name = "Lucky Charm", source = "crate", description = "Found in a supply crate." },
+	{ id = "Founder", name = "Founder", source = "premium", description = "Part of the Founder Pack." },
 }
 
 local EMBLEM_COLORS = {
@@ -73,6 +90,16 @@ local ROMAN = { "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X" }
 local emblems: { EmblemDef } = {}
 for i = 1, 10 do
 	table.insert(emblems, { id = "Prestige" .. i, name = "Prestige " .. ROMAN[i], prestige = i, color = EMBLEM_COLORS[i], glyph = ROMAN[i] })
+end
+-- Phase 6 store emblems (`prestige` is unreachable; they are owned only through the inventory)
+for _, e in {
+	{ id = "Wolf", name = "Wolf", source = "shop", color = Color3.fromRGB(120, 130, 140), glyph = "W" },
+	{ id = "Anchor", name = "Anchor", source = "crate", color = Color3.fromRGB(60, 110, 170), glyph = "A" },
+	{ id = "Star", name = "Star", source = "crate", color = Color3.fromRGB(230, 200, 90), glyph = "★" },
+	{ id = "Skull", name = "Skull", source = "crate", color = Color3.fromRGB(200, 200, 205), glyph = "☠" },
+	{ id = "Founder", name = "Founder", source = "premium", color = Color3.fromRGB(255, 176, 32), glyph = "F" },
+} do
+	table.insert(emblems, { id = e.id, name = e.name, prestige = math.huge, color = e.color, glyph = e.glyph, source = e.source })
 end
 
 local Cosmetics = {

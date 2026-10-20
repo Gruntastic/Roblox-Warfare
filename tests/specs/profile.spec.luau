@@ -89,7 +89,7 @@ describe("ProfileSchema", function()
 		}
 		local p, changed = ProfileSchema.migrate(v3, 100, 5, valid)
 		expect(changed).toBe(true)
-		expect(p.version).toBe(4)
+		expect(p.version).toBe(ProfileSchema.VERSION)
 		expect(p.account.prestige).toBe(1)
 		expect(p.stats.kills).toBe(300)
 		expect(p.stats.captures).toBe(0)
