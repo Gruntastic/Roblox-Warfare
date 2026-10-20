@@ -399,6 +399,11 @@ local function runMatch()
 			aborted = true
 			return true
 		end
+		-- QA hook, Studio only: while workspace attribute QA_HoldLobby is set, the countdown stalls.
+		if RunService:IsStudio() and workspace:GetAttribute("QA_HoldLobby") and phaseEndsAt - now() < 10 then
+			phaseEndsAt = now() + Match.LobbyCountdown
+			stateDirty = true
+		end
 		return false
 	end)
 	if aborted then

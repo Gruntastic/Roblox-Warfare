@@ -2,6 +2,7 @@
 -- Server-authoritative account/weapon XP, unlock checks, loadout validation and anti-farm.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage.Shared
 local Net = require(Shared.Net)
@@ -343,6 +344,28 @@ function ProgressionService.init()
 		ledgers[player] = nil
 		lastLoadoutChange[player] = nil
 	end)
+
+	-- QA hook, Studio only and only on temporary (unsaved) profiles: set workspace attribute
+	-- QA_GrantLevels to a number to put every player's account and weapons at that level.
+	if RunService:IsStudio() then
+		workspace:GetAttributeChangedSignal("QA_GrantLevels"):Connect(function()
+			local level = workspace:GetAttribute("QA_GrantLevels")
+			if type(level) ~= "number" or not DataService.temporary then
+				return
+			end
+			workspace:SetAttribute("QA_GrantLevels", nil)
+			for _, player in Players:GetPlayers() do
+				local profile = DataService.getProfile(player)
+				if profile then
+					profile.account.level = math.clamp(math.max(profile.account.level, level), 1, Progression.MaxAccountLevel)
+					for id in Weapons do
+						weaponEntry(profile, id).level = math.clamp(level, 1, Progression.MaxWeaponLevel)
+					end
+					ProgressionService.sync(player)
+				end
+			end
+		end)
+	end
 end
 
 function ProgressionService.start() end
