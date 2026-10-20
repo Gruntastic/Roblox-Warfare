@@ -9,6 +9,7 @@
 -- and SPRINT in a column at the right edge above the jump button. A small FIRE on the left lets
 -- players shoot while steering the camera with the right thumb.
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local Theme = require(script.Parent.Theme)
@@ -37,6 +38,9 @@ local gui: ScreenGui
 local canvas: Frame
 local buttons: { [string]: TextButton } = {}
 local toggled: { [string]: boolean } = {}
+local tap: (string) -> ()
+-- press handling shared by real input and the QA hook
+local pressHandlers: { [string]: { down: () -> (), up: () -> () } } = {}
 
 local function isPress(input: InputObject): boolean
 	return input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1
@@ -76,11 +80,7 @@ local function build(spec: Spec)
 	}, { Theme.new("UICorner", { CornerRadius = UDim.new(0.5, 0) }) :: Instance, Theme.stroke(C.Accent, 2, 0.4) })
 	buttons[spec.name] = b
 	local activeInput: InputObject? = nil
-	b.InputBegan:Connect(function(input: InputObject)
-		if not isPress(input) or activeInput then
-			return
-		end
-		activeInput = input
+	local function down()
 		if spec.toggle then
 			toggled[spec.name] = not toggled[spec.name]
 			paint(spec.name, toggled[spec.name])
@@ -88,12 +88,8 @@ local function build(spec: Spec)
 			paint(spec.name, true)
 		end
 		ClientState.TouchAction:Fire(action, true)
-	end)
-	local function release(input: InputObject)
-		if input ~= activeInput then
-			return
-		end
-		activeInput = nil
+	end
+	local function up()
 		if not spec.toggle then
 			paint(spec.name, false)
 		end
@@ -101,9 +97,30 @@ local function build(spec: Spec)
 			ClientState.TouchAction:Fire(action, false)
 		end
 	end
+	pressHandlers[spec.name] = { down = down, up = up }
+	b.InputBegan:Connect(function(input: InputObject)
+		if isPress(input) and not activeInput then
+			activeInput = input
+			down()
+		end
+	end)
+	local function release(input: InputObject)
+		if input == activeInput then
+			activeInput = nil
+			up()
+		end
+	end
 	b.InputEnded:Connect(release)
 	-- a finger that slides off the button still ends the press
 	UserInputService.InputEnded:Connect(release)
+end
+
+tap = function(name: string)
+	local h = pressHandlers[name]
+	if h then
+		h.down()
+		task.delay(0.3, h.up)
+	end
 end
 
 local function refresh()
@@ -138,6 +155,20 @@ function TouchControls.init()
 	end)
 	workspace:GetAttributeChangedSignal("QA_ForceTouch"):Connect(refresh)
 	refresh()
+
+	-- QA hook, Studio only: workspace attribute QA_TouchTap = "<button name>" taps that button
+	-- (press, then release 0.3 s later), so the button -> controller path can be playtested with a
+	-- locked mouse, which cannot hit GUI buttons in first person.
+	if RunService:IsStudio() then
+		workspace:GetAttributeChangedSignal("QA_TouchTap"):Connect(function()
+			local name = workspace:GetAttribute("QA_TouchTap")
+			if type(name) ~= "string" or not buttons[name] or not gui.Enabled then
+				return
+			end
+			workspace:SetAttribute("QA_TouchTap", nil)
+			tap(name)
+		end)
+	end
 end
 
 return TouchControls
