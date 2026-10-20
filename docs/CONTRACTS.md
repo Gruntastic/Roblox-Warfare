@@ -28,7 +28,7 @@ Signals: `MatchStateChanged`, `ProfileChanged`, `AmmoChanged(slot, info)`, `Kill
 
 ## Remotes (src/shared/Net.luau, payloads in src/shared/Types.luau)
 Client -> server: `Fire(shotId, slot, origin, direction)`, `Reload(slot)`, `Equip(slot)`, `Melee()`,
-`SetLoadout(index, {primary, secondary})`, `SelectLoadout(index)`,
+`SetLoadout(index, {primary, secondary, primaryAttachments, secondaryAttachments})`, `SelectLoadout(index)`,
 `VoteMap(mapId)`, `RequestDeploy()`. Function: `GetProfile() -> ProfileSummary`.
 Server -> client: `MatchState`, `KillFeed`, `HitConfirm`, `DamageTaken`, `AmmoState(slot, mag, reserve, reloading)`,
 `XPGain`, `ProfileSync`, `MatchResults`, `Tracer(shooterUserId, origin, hitPos)`, `Notify(text, kind)`.
@@ -60,3 +60,30 @@ The built Model contains:
 - Model attribute `KillY` (number): characters below this Y are killed.
 - Optional `Objectives` Folder (later modes) with Parts named by objective, attribute `Mode`.
 `build()` must work both in Studio edit mode and on the server, and must not require other project modules.
+
+## Weapons and attachments (Phase 3)
+- `src/shared/Config/Weapons.luau`: `WeaponDef` (see its exported types). Ids are short uppercase
+  strings (`VK7`). Each weapon declares `anchors` (optic, muzzle, underbarrel?, magazine, leftHand),
+  `sightOffset` (iron-sight eye point), `attachmentSlots` and `attachmentUnlocks` (attachment id ->
+  weapon level). `unlockLevel` is the account level that unlocks the weapon.
+- `src/shared/Config/Attachments.luau`: `AttachmentDef`. Slots: `Optic`, `Muzzle`, `Barrel`,
+  `Underbarrel`, `Magazine`, at most one per slot. Modifiers are multipliers. Attachments are only
+  ever earned by weapon level: none are sold or random.
+- Attachment model parts are authored relative to the slot anchor:
+  - Optic → `anchors.optic`.
+  - Underbarrel → `anchors.underbarrel`.
+  - Magazine → `anchors.magazine`, replacing the weapon part named `Magazine`.
+  - Barrel → `anchors.muzzle`.
+  - Muzzle → `anchors.muzzle`, moved forward by the equipped barrel's `muzzleExtend`.
+- `src/shared/Pure/WeaponStats.luau`:
+  - `validate(def, selection, weaponLevel, catalog)` is used by the server on `SetLoadout`.
+  - `sanitize(...)` is used on profile load.
+  - `resolve(def, selection, catalog) -> Effective` gives the stats both sides use; the server is
+    authoritative.
+  - `ratings(effective)` gives 0..100 values for UI bars.
+- `src/shared/Pure/Pellets.luau`: a fixed shotgun pellet pattern shared by client and server. The
+  client sends one aim direction.
+- `WeaponModel.build(def, opts)` takes `opts.attachments` (a selection). It adds an Attachment named
+  `Sight` at the effective `sightOffset`, which ADS aligns to, and an Attachment named `Muzzle`.
+- Burst weapons: `rpm` is the rate inside a burst. The client enforces `burst.delay`; the server
+  enforces `rpm` and ammo.

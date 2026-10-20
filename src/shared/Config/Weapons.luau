@@ -19,13 +19,30 @@ export type ModelPart = {
 	material: Enum.Material,
 }
 
+export type WeaponClass = "AssaultRifle" | "SMG" | "LMG" | "Marksman" | "Sniper" | "Shotgun" | "Pistol" | "MachinePistol"
+export type AttachmentSlot = "Optic" | "Muzzle" | "Barrel" | "Underbarrel" | "Magazine"
+
+-- Where attachment models mount, relative to the grip origin. Each attachment's model parts are
+-- authored relative to its slot's anchor. Muzzle devices mount at `muzzle` (== muzzleOffset).
+export type Anchors = {
+	optic: CFrame, -- top of the receiver rail, centred; +Y is up
+	muzzle: CFrame,
+	underbarrel: CFrame?, -- nil when the weapon has no underbarrel rail
+	magazine: CFrame, -- mag well; magazine attachments replace the part named "Magazine"
+	leftHand: CFrame, -- where the viewmodel's left hand holds the weapon (handguard or grip)
+}
+
 export type WeaponDef = {
 	id: string,
 	displayName: string,
-	class: "AssaultRifle" | "SMG" | "LMG" | "Sniper" | "Marksman" | "Shotgun" | "Pistol",
+	description: string,
+	class: WeaponClass,
 	slot: "Primary" | "Secondary",
-	fireMode: "Auto" | "Semi",
-	rpm: number,
+	fireMode: "Auto" | "Semi" | "Burst",
+	rpm: number, -- for Burst: the rate inside a burst
+	burst: { count: number, delay: number }?, -- Burst only: rounds per trigger pull, seconds between bursts
+	pellets: number?, -- shotguns: pellets per shot; `damage` is per pellet
+	pelletSpread: number?, -- shotguns: pellet cone radius in degrees (fixed pattern, see Pure/Pellets)
 	damage: DamageProfile,
 	headMultiplier: number,
 	limbMultiplier: number,
@@ -39,9 +56,14 @@ export type WeaponDef = {
 	adsMoveSpeedMultiplier: number,
 	spread: { hip: number, ads: number, movingMultiplier: number }, -- degrees
 	recoil: { vertical: number, horizontal: number, recovery: number, adsMultiplier: number }, -- degrees per shot
-	adsFov: number,
-	unlockLevel: number,
+	adsFov: number, -- iron-sight ADS field of view
+	scope: { fov: number }?, -- built-in magnified scope (snipers): ADS uses this FOV and a scope overlay
+	unlockLevel: number, -- account level that unlocks the weapon
 	muzzleOffset: CFrame, -- relative to grip origin
+	sightOffset: CFrame, -- iron-sight eye point relative to grip origin (ADS aligns the camera here)
+	anchors: Anchors,
+	attachmentSlots: { AttachmentSlot }, -- slots this weapon accepts
+	attachmentUnlocks: { [string]: number }, -- attachment id -> weapon level that unlocks it
 	sounds: { fire: string, reload: string, equip: string },
 	model: { ModelPart },
 }
@@ -66,6 +88,7 @@ local Weapons: { [string]: WeaponDef } = {
 	VK7 = {
 		id = "VK7",
 		displayName = "VK-7 Vanguard",
+		description = "Mid-weight rifle. Reliable all-rounder with a 4-shot close-range kill.",
 		class = "AssaultRifle",
 		slot = "Primary",
 		fireMode = "Auto",
@@ -86,6 +109,16 @@ local Weapons: { [string]: WeaponDef } = {
 		adsFov = 55,
 		unlockLevel = 1,
 		muzzleOffset = CFrame.new(0, 0.12, -2.55),
+		sightOffset = CFrame.new(0, 0.395, 0),
+		anchors = {
+			optic = CFrame.new(0, 0.315, -0.6),
+			muzzle = CFrame.new(0, 0.12, -2.55),
+			underbarrel = CFrame.new(0, -0.02, -1.6),
+			magazine = CFrame.new(0, -0.27, -0.75),
+			leftHand = CFrame.new(0, -0.08, -1.2),
+		},
+		attachmentSlots = { "Optic", "Muzzle", "Barrel", "Underbarrel", "Magazine" },
+		attachmentUnlocks = { RedDot = 2, Suppressor = 4, VerticalGrip = 6, ExtendedMag = 8, LongBarrel = 10 },
 		sounds = { fire = "", reload = "", equip = "" },
 		model = {
 			part("Receiver", Vector3.new(0.22, 0.32, 1.3), CFrame.new(0, 0.1, -0.55)),
@@ -104,6 +137,7 @@ local Weapons: { [string]: WeaponDef } = {
 	P12 = {
 		id = "P12",
 		displayName = "P-12 Warden",
+		description = "Service pistol. Fast to draw, three-shot kill up close, weak at range.",
 		class = "Pistol",
 		slot = "Secondary",
 		fireMode = "Semi",
@@ -124,6 +158,16 @@ local Weapons: { [string]: WeaponDef } = {
 		adsFov = 62,
 		unlockLevel = 1,
 		muzzleOffset = CFrame.new(0, 0.18, -0.85),
+		sightOffset = CFrame.new(0, 0.285, 0),
+		anchors = {
+			optic = CFrame.new(0, 0.24, -0.35),
+			muzzle = CFrame.new(0, 0.18, -0.85),
+			underbarrel = nil,
+			magazine = CFrame.new(0, -0.2, 0),
+			leftHand = CFrame.new(-0.05, -0.2, 0.05),
+		},
+		attachmentSlots = { "Optic", "Muzzle", "Magazine" },
+		attachmentUnlocks = { RedDot = 3, Suppressor = 5, ExtendedMag = 7 },
 		sounds = { fire = "", reload = "", equip = "" },
 		model = {
 			part("Slide", Vector3.new(0.16, 0.18, 0.85), CFrame.new(0, 0.15, -0.38)),

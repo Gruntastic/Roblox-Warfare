@@ -2,15 +2,22 @@
 -- Persistent profile schema, defaults, migration and sanitation. Pure.
 local ProfileSchema = {}
 
-ProfileSchema.VERSION = 2
+ProfileSchema.VERSION = 3
 
 export type WeaponProgress = { level: number, xp: number, kills: number }
+export type Loadout = {
+	name: string,
+	primary: string,
+	secondary: string,
+	primaryAttachments: { [string]: string }, -- attachment slot -> attachment id
+	secondaryAttachments: { [string]: string },
+}
 export type Profile = {
 	version: number,
 	account: { level: number, xp: number, prestige: number },
 	weapons: { [string]: WeaponProgress },
 	stats: { kills: number, deaths: number, matches: number, wins: number, headshots: number },
-	loadouts: { { name: string, primary: string, secondary: string } },
+	loadouts: { Loadout },
 	selectedLoadout: number,
 	inventory: { [string]: number }, -- cosmetics (Phase 5)
 	processedReceipts: { [string]: number }, -- purchaseId -> unix time (Phase 6)
@@ -21,7 +28,7 @@ export type Profile = {
 function ProfileSchema.default(now: number, loadoutSlots: number): Profile
 	local loadouts = {}
 	for i = 1, loadoutSlots do
-		loadouts[i] = { name = "Loadout " .. i, primary = "VK7", secondary = "P12" }
+		loadouts[i] = { name = "Loadout " .. i, primary = "VK7", secondary = "P12", primaryAttachments = {}, secondaryAttachments = {} }
 	end
 	return {
 		version = ProfileSchema.VERSION,
@@ -55,7 +62,41 @@ local MIGRATIONS: { [number]: (any) -> any } = {
 		}
 		return new
 	end,
+	-- v3 added per-weapon attachment selections to loadouts (empty for existing loadouts).
+	[2] = function(old)
+		old.version = 3
+		if type(old.loadouts) == "table" then
+			for _, l in old.loadouts do
+				if type(l) == "table" then
+					l.primaryAttachments = {}
+					l.secondaryAttachments = {}
+				end
+			end
+		end
+		return old
+	end,
 }
+
+-- Shape-only check of an attachment selection: at most five string -> string entries. Whether the
+-- ids are real, compatible and unlocked is checked by WeaponStats on the server.
+local function attachmentMap(v: any): { [string]: string }
+	local out = {}
+	if type(v) ~= "table" then
+		return out
+	end
+	local n = 0
+	for slot, id in v do
+		if type(slot) == "string" and type(id) == "string" and #slot <= 16 and #id <= 32 then
+			n += 1
+			if n > 5 then
+				break
+			end
+			out[slot] = id
+		end
+	end
+	return out
+end
+ProfileSchema.attachmentMap = attachmentMap
 
 local function num(v: any, default: number, min: number?, max: number?): number
 	if type(v) ~= "number" or v ~= v then
@@ -108,7 +149,14 @@ function ProfileSchema.migrate(data: any, now: number, loadoutSlots: number, val
 				local primary = if validWeapons[l.primary] == "Primary" then l.primary else d.loadouts[i].primary
 				local secondary = if validWeapons[l.secondary] == "Secondary" then l.secondary else d.loadouts[i].secondary
 				local name = if type(l.name) == "string" then string.sub(l.name, 1, 24) else d.loadouts[i].name
-				d.loadouts[i] = { name = name, primary = primary, secondary = secondary }
+				d.loadouts[i] = {
+					name = name,
+					primary = primary,
+					secondary = secondary,
+					-- a changed weapon invalidates its attachments
+					primaryAttachments = if primary == l.primary then attachmentMap(l.primaryAttachments) else {},
+					secondaryAttachments = if secondary == l.secondary then attachmentMap(l.secondaryAttachments) else {},
+				}
 			end
 		end
 	end

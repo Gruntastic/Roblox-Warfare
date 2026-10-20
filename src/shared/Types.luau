@@ -56,7 +56,13 @@ export type XPGainPayload = {
 	weaponLeveledUp: boolean,
 }
 
-export type Loadout = { name: string, primary: string, secondary: string }
+export type Loadout = {
+	name: string,
+	primary: string,
+	secondary: string,
+	primaryAttachments: { [string]: string }, -- attachment slot -> attachment id
+	secondaryAttachments: { [string]: string },
+}
 
 export type ProfileSummary = {
 	userId: number,

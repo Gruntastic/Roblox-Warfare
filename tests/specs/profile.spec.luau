@@ -14,11 +14,11 @@ describe("ProfileSchema", function()
 		expect(#p.loadouts).toBe(5)
 		expect(p.account.level).toBe(1)
 	end)
-	it("migrates v1 flat profiles to v2 keeping progress", function()
+	it("migrates v1 flat profiles to the current version keeping progress", function()
 		local v1 = { version = 1, level = 12, xp = 340, stats = { kills = 50 }, weapons = { VK7 = { level = 4, xp = 10, kills = 40 } } }
 		local p, changed = ProfileSchema.migrate(v1, 100, 5, valid)
 		expect(changed).toBe(true)
-		expect(p.version).toBe(2)
+		expect(p.version).toBe(ProfileSchema.VERSION)
 		expect(p.account.level).toBe(12)
 		expect(p.account.xp).toBe(340)
 		expect(p.stats.kills).toBe(50)
@@ -42,6 +42,42 @@ describe("ProfileSchema", function()
 		expect(p.loadouts[1].secondary).toBe("P12")
 		expect(#p.loadouts[1].name).toBe(24)
 		expect(p.selectedLoadout).toBe(5)
+	end)
+	it("migrates v2 loadouts to v3 with empty attachment selections", function()
+		local v2 = { version = 2, account = { level = 5, xp = 0, prestige = 0 }, loadouts = { { name = "A", primary = "VK7", secondary = "P12" } } }
+		local p, changed = ProfileSchema.migrate(v2, 100, 5, valid)
+		expect(changed).toBe(true)
+		expect(p.version).toBe(3)
+		expect(next(p.loadouts[1].primaryAttachments)).toBe(nil)
+		expect(next(p.loadouts[5].secondaryAttachments)).toBe(nil)
+	end)
+	it("keeps attachment maps by shape only, capped at five entries", function()
+		local v3 = {
+			version = 3,
+			loadouts = {
+				{ name = "A", primary = "VK7", secondary = "P12", primaryAttachments = { Optic = "RedDot", [1] = "x", Muzzle = 5 }, secondaryAttachments = "bad" },
+			},
+		}
+		local p = ProfileSchema.migrate(v3, 100, 5, valid)
+		expect(p.loadouts[1].primaryAttachments.Optic).toBe("RedDot")
+		expect(p.loadouts[1].primaryAttachments.Muzzle).toBe(nil)
+		expect(p.loadouts[1].primaryAttachments[1]).toBe(nil)
+		expect(next(p.loadouts[1].secondaryAttachments)).toBe(nil)
+		local big = {}
+		for i = 1, 20 do
+			big["S" .. i] = "A"
+		end
+		local count = 0
+		for _ in ProfileSchema.attachmentMap(big) do
+			count += 1
+		end
+		expect(count).toBe(5)
+	end)
+	it("drops attachments when the stored weapon is replaced", function()
+		local v3 = { version = 3, loadouts = { { name = "A", primary = "HACKGUN", secondary = "P12", primaryAttachments = { Optic = "RedDot" }, secondaryAttachments = {} } } }
+		local p = ProfileSchema.migrate(v3, 100, 5, valid)
+		expect(p.loadouts[1].primary).toBe("VK7")
+		expect(next(p.loadouts[1].primaryAttachments)).toBe(nil)
 	end)
 	it("refuses to load profiles from a newer schema", function()
 		expect(function()
