@@ -80,6 +80,19 @@ Tip: in Studio, `workspace:SetAttribute("QA_GrantLevels", 30)` unlocks everythin
 - [x] Each map loads with its lighting: Iron Borough (night), Breakwater, Red Mesa, Ashwood Estate, Frost Relay
 - [ ] Walk every map end to end looking for stuck spots and gaps
 
+## Perks, killstreaks, challenges, prestige, cosmetics (Phase 5)
+- [x] Lobby editor has WEAPONS / PERKS / KILLSTREAKS tabs; loadout cards list the three perks (01)
+- [x] QA_GrantLevels 70 unlocks every weapon; the BARRACKS card shows PRESTIGE AVAILABLE (02)
+- [x] QA_CompleteChallenges completes all three dailies with toasts and XP; Barracks shows them COMPLETE (02, 03)
+- [x] QA_GrantStats 500 unlocks titles by stat; Veteran shows 500/1000 progress (04)
+- [x] Equipping a title (Centurion) updates the service record header (05)
+- [x] Prestige asks for confirmation, then sets level 1, Prestige I, and unlocks the Prestige I emblem (06, 07)
+- [x] In a match the streak tray shows the equipped streaks and the kills needed (08)
+- [ ] Earning and calling in each killstreak (needs kills, so 2 players)
+- [ ] Perk effects in a fight: Scavenger refill, Tracker mark, Blast Guard, Ghost Signal vs Recon Drone
+- [ ] Sentry Gun placement and damage; Blackout disables the enemy HUD and streaks
+- [ ] Camo shows on the viewmodel and third-person model once earned
+
 ## Progression and persistence (published place)
 - [x] Match complete and time played XP are granted; the results breakdown matches
 - [x] The lobby rank bar reflects XP after returning from Results
@@ -99,3 +112,4 @@ Tip: in Studio, `workspace:SetAttribute("QA_GrantLevels", 30)` unlocks everythin
 | 2026-10-20 | 8a766db | Claude (Studio via MCP, 1 client) | Phase 2 items marked ✓ | Pass, after 4 fixes |
 | 2026-10-20 | Phase 3 playtest commit | Claude (Studio via MCP, 1 client) | Phase 3 items marked ✓ | Pass, after 4 fixes |
 | 2026-10-20 | 6ddafa8 → 13e75e8 | Claude (Studio via MCP, 1 client) | Phase 4 items marked ✓ | Pass, after 3 fixes |
+| 2026-10-20 | e334c3d → Phase 5 report commit | Claude (Studio via MCP, 1 client) | Phase 5 items marked ✓ | Pass, after 1 fix (Red Mesa spawn facing) |

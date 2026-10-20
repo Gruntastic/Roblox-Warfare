@@ -812,10 +812,12 @@ function MapModule.build(): Model
 		blk(s * RAMPART[1], T, -97, s * (RAMPART[1] - 1), T + 11, -96, accent, "GapPost")
 		blk(s * RAMPART[1], T, -86, s * (RAMPART[1] - 1), T + 11, -85, accent, "GapPost")
 
-		-- team spawns: two columns of five behind the rampart, facing the map
+		-- team spawns: two columns of five behind the rampart, each facing the nearest rampart gap
+		-- (facing straight at the rampart put a rock wall 12 studs in front of the camera)
 		for _, z in { -40, -10, 20, 50, 80 } do
+			local gapZ = if z < 35 then (GAP_STREET[1] + GAP_STREET[2]) / 2 else (GAP_SOUTH[1] + GAP_SOUTH[2]) / 2
 			for _, x in { 186, 200 } do
-				spawnPart(s * x, 0, z + (if x == 200 then 6 else 0), 0, z, team, false)
+				spawnPart(s * x, 0, z + (if x == 200 then 6 else 0), s * RAMPART[1], gapZ, team, false)
 			end
 		end
 	end

@@ -1,6 +1,6 @@
-# Status report: Phases 1–4
+# Status report: Phases 1–5
 
-Last updated: 2026-10-20. Phase 2 evidence: commit `8a766db`. Phase 3 evidence: the Phase 3 playtest commit and later. Phase 4 evidence: commit `13e75e8`.
+Last updated: 2026-10-20. Phase 2 evidence: commit `8a766db`. Phase 3 evidence: the Phase 3 playtest commit and later. Phase 4 evidence: commit `13e75e8`. Phase 5 evidence: commit `e334c3d` and the Phase 5 report commit (screenshots in `docs/qa/phase5`).
 
 This report separates what was **executed with evidence** from what is **written but not yet exercised**.
 Nothing below is claimed as tested unless it was run.
@@ -177,6 +177,23 @@ All of these only work in Studio. `QA_GrantLevels` also requires temporary (unpu
 - Touch, gamepad and small-screen layouts.
 - Performance with 12 players.
 
+## Phase 5: perks, killstreaks, challenges, prestige, cosmetics
+
+Built against `docs/PHASE5_CONTRACT.md`: 12 perks in three tiers, 6 killstreaks (Recon Drone,
+Counter-Recon, Mortar Barrage, Sentry Gun, Strike Run, Blackout), 3 deterministic daily
+challenges from a pool of 17, 6 camos, 11 titles, 10 prestige emblems, and profile schema v4 with a
+v3→v4 migration. Everything that changes gameplay unlocks by level only; cosmetic ownership is
+derived from play. Nothing is random-for-reward and nothing is paid.
+
+Executed with evidence: 289 unit specs pass (54 new for Phase 5) and the type check is clean. In the
+Studio playtest (1 client) the loadout tabs, Barracks, challenge completion, title unlocks and
+equip, prestige with confirmation, and the in-match streak tray all worked (`docs/qa/phase5`).
+One defect was fixed: Red Mesa team spawns faced the rampart wall 12 studs away; they now face the
+nearest rampart gap.
+
+Not yet exercised: earning and using killstreaks, perk effects in a fight, sentries, Blackout and
+camos on models all need kills, so they wait for a two-player session.
+
 ## Known issues and notes
 
 - Studio prints `rbxassetid://203785492 … Asset type does not match` three times at play start. That
@@ -200,6 +217,10 @@ All of these only work in Studio. `QA_GrantLevels` also requires temporary (unpu
   before any public release.
 - Studio sync is done through MCP scripts, not the Rojo plugin. `tools/studio_patch.py` sends only
   changed hunks with checksum verification, and `tools/studio_verify.py` audits the whole tree.
+
+- Open UI items: the objectives strip and S&D prompt stay visible during Blackout, and the Sentry Gun
+  has no health bar.
+- The lobby operator list shows a player's old rank until the next roster refresh.
 
 ## Needs the owner
 
