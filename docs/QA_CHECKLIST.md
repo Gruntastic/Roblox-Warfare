@@ -93,6 +93,16 @@ Tip: in Studio, `workspace:SetAttribute("QA_GrantLevels", 30)` unlocks everythin
 - [ ] Sentry Gun placement and damage; Blackout disables the enemy HUD and streaks
 - [ ] Camo shows on the viewmodel and third-person model once earned
 
+## Store (Phase 6)
+- [x] Lobby STORE card shows credits and unopened crates (01)
+- [x] Shop: buying with credits marks the item OWNED, deducts credits, and greys out items you cannot afford (02, 03)
+- [x] Supply crates: OPEN uses one crate, shows the result, marks it OWNED in the odds list; odds are shown before opening (04)
+- [x] Premium: a bundle without a product id shows COMING SOON and cannot be bought (05)
+- [x] PolicyService is read for the player (Studio: not restricted)
+- [ ] Credits after a completed match (+100, +50 for a win) and crates on level-up / all three dailies, in real play
+- [ ] Robux purchase end to end (needs the owner to create the developer product on the published game)
+- [ ] Equip a store camo in the Gunsmith and see it in a match
+
 ## Progression and persistence (published place)
 - [x] Match complete and time played XP are granted; the results breakdown matches
 - [x] The lobby rank bar reflects XP after returning from Results
@@ -113,3 +123,4 @@ Tip: in Studio, `workspace:SetAttribute("QA_GrantLevels", 30)` unlocks everythin
 | 2026-10-20 | Phase 3 playtest commit | Claude (Studio via MCP, 1 client) | Phase 3 items marked ✓ | Pass, after 4 fixes |
 | 2026-10-20 | 6ddafa8 → 13e75e8 | Claude (Studio via MCP, 1 client) | Phase 4 items marked ✓ | Pass, after 3 fixes |
 | 2026-10-20 | e334c3d → Phase 5 report commit | Claude (Studio via MCP, 1 client) | Phase 5 items marked ✓ | Pass, after 1 fix (Red Mesa spawn facing) |
+| 2026-10-20 | 3fc56a7 | Claude (Studio via MCP, 1 client) | Phase 6 items marked ✓ | Pass, no defects found |

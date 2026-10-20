@@ -1,4 +1,4 @@
-# Status report: Phases 1–5
+# Status report: Phases 1–6
 
 Last updated: 2026-10-20. Phase 2 evidence: commit `8a766db`. Phase 3 evidence: the Phase 3 playtest commit and later. Phase 4 evidence: commit `13e75e8`. Phase 5 evidence: commit `e334c3d` and the Phase 5 report commit (screenshots in `docs/qa/phase5`).
 
@@ -194,6 +194,31 @@ nearest rampart gap.
 Not yet exercised: earning and using killstreaks, perk effects in a fight, sentries, Blackout and
 camos on models all need kills, so they wait for a two-player session.
 
+## Phase 6: compliant store
+
+Policy (`src/shared/Config/Store.luau`, enforced by `Pure/StoreRules.luau` and specs):
+- Everything in the store is cosmetic. Gameplay items stay level-unlocked only.
+- Credits are earned by play only (match complete +100, win +50, each daily challenge +150) and are
+  never sold for Robux, so no Robux ever reaches a random outcome, directly or through a currency.
+- Supply crates are earned by play only (each level-up or prestige, and once a day for finishing all
+  three dailies). Odds are shown before opening, and a crate never gives an item you already own.
+  Because nothing paid is random, no regional or age gating of paid random items is needed; the
+  server still reads PolicyService (`ArePaidRandomItemsRestricted`, unknown = restricted) and shows it
+  in the store state, so any future paid random item has the flag ready.
+- Robux buys fixed, named bundles (developer products). `ProcessReceipt` is idempotent: the grant and
+  the PurchaseId are written to the profile together, and the purchase is acknowledged only after the
+  profile is saved. A retried receipt is acknowledged without granting twice. Unknown products are
+  left unprocessed. Receipt ids are kept 120 days.
+- Profile schema v5 adds the wallet and crate stats, with a v4→v5 migration and stricter inventory
+  sanitising.
+
+Executed with evidence: 305 unit specs pass (16 new for Phase 6) and the type check is clean. In
+Studio the shop purchase, crate opening with odds and duplicate protection, the premium COMING SOON
+state and the PolicyService lookup all worked (`docs/qa/phase6`). No defects were found.
+
+Not yet exercised: a real Robux purchase (needs a developer product on the published game), and
+credits and crates earned through real matches.
+
 ## Known issues and notes
 
 - Studio prints `rbxassetid://203785492 … Asset type does not match` three times at play start. That
@@ -227,5 +252,7 @@ camos on models all need kills, so they wait for a two-player session.
 1. **Publish the place and enable Studio API access** (Game Settings → Security), so DataStore
    persistence can be tested for real.
 2. ~~Connect a GitHub repository~~ Done: https://github.com/Gruntastic/roblox-warfare (`main`).
+4. **Create the Founder Pack developer product** on the published game and put its id in
+   `src/shared/Config/Store.luau` (`productId`). Until then the bundle shows COMING SOON.
 3. **Run one two-player test**, either Studio Test → Clients and Servers with 2 players, or a
    private server, to clear the combat items above. `docs/QA_CHECKLIST.md` lists the steps.
