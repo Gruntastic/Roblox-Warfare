@@ -54,7 +54,8 @@ function MatchRules.ffaWinner(kills: { [number]: number }): number?
 			tied = true
 		end
 	end
-	if tied then
+	-- a tie, or a match nobody scored in (e.g. one player alone), has no winner
+	if tied or bestKills < 1 then
 		return nil
 	end
 	return best

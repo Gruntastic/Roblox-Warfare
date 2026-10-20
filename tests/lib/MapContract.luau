@@ -321,6 +321,24 @@ return function(file: string, expected: { id: string, displayName: string })
 			end
 		end)
 
+		it("team spawns open onto at least 8 studs of space ahead", function()
+			-- the first view after spawning should not be a wall in your face
+			local bad = {}
+			for _, list in { sable, talon } do
+				for _, s in list do
+					local pos = s.CFrame.Position
+					local look = s.CFrame.LookVector
+					local d = castXZ(pos.X, pos.Y + 4.5, pos.Z, look.X, look.Z, 8)
+					if d < 8 then
+						table.insert(bad, ("%s (%.1f)"):format(tostring(pos), d))
+					end
+				end
+			end
+			if #bad > 0 then
+				error("team spawns facing a wall: " .. table.concat(bad, "; "))
+			end
+		end)
+
 		it("team spawns have no eye-level sightline towards the enemy longer than 120 studs", function()
 			-- Only rays within 60 degrees of the direction to the enemy base count: those are the lines
 			-- an enemy could use to fire into the spawn.

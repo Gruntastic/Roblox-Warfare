@@ -74,5 +74,14 @@ describe("MatchRules", function()
 		expect(MatchRules.winner({ Sable = 10, Talon = 4 })).toBe("Sable")
 		expect(MatchRules.winner({ Sable = 4, Talon = 4 })).toBe(nil)
 	end)
+
+	it("FFA winner: most kills; none on a tie or when nobody scored", function()
+		expect(MatchRules.ffaWinner({ [1] = 12, [2] = 30, [3] = 7 })).toBe(2)
+		expect(MatchRules.ffaWinner({ [1] = 9, [2] = 9 })).toBe(nil)
+		expect(MatchRules.ffaWinner({ [1] = 0 })).toBe(nil) -- alone in the lobby: no free victory
+		expect(MatchRules.ffaWinner({ [1] = 0, [2] = 0 })).toBe(nil)
+		expect(MatchRules.ffaWinner({})).toBe(nil)
+		expect(MatchRules.ffaWinner({ [5] = 1, [6] = 0 })).toBe(5)
+	end)
 end)
 return nil

@@ -40,7 +40,7 @@ same code runs on the server, in Studio edit mode and under Lune.
 
 - Parts, `Transparency 1`, anchored, `CanCollide / CanQuery / CanTouch = false`, size exactly (2, 1, 2).
 - A character is placed at `CFrame + (0, 3, 0)`, so the part's centre sits 0.5 above the floor top.
-- `LookVector` is horizontal and faces into the map.
+- `LookVector` is horizontal and faces into the map, with at least 8 studs of open space ahead at eye level.
 - Team spawns: attribute `Team = "Sable"` (at least 8) and `Team = "Talon"` (at least 8). They are
   clustered at opposite ends. The two team centroids are at least 150 studs apart, and no Talon spawn
   is within 100 studs of a Sable spawn (smaller maps: at least 60% of the bounds' longer side).

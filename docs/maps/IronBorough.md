@@ -77,7 +77,7 @@ The roofs, the viaduct deck and the embankment are all out of reach. This map ha
 ## Spawn logic
 
 - **Sable** spawns in the west yard (X -128..-108) and **Talon** in the east yard (X 108..128). The layout is mirror-symmetric across X = 0, except for shop signage colours and car colours.
-- There are 11 team spawns per side, in two columns (|X| = 120 and 125.5) spread from Z -84 to 86, all facing the map centre. The team centroids are about 245 studs apart. The closest enemy spawn pair is 240 studs apart.
+- There are 11 team spawns per side, in two columns (|X| = 120 and 125.5) spread from Z -72 to 70, all facing the map centre and clear of the gap screens. The team centroids are about 245 studs apart. The closest enemy spawn pair is 240 studs apart.
 - Each yard is closed off by a 16-tall brick wall at |X| 106..108, under the viaduct deck. It has four gaps:
   - G1, the back alley (Z -94..-84)
   - G2, the street (Z -38..-26). The end viaduct pier stands right outside it.

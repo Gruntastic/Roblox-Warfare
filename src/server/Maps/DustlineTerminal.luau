@@ -789,10 +789,11 @@ function MapModule.build(): Model
 		crate(s * 174, 0, -66, 4, 0.1)
 		blk(s * 166, 0, 116, s * 176, 3, 124, P.metal, "ToolChest")
 
-		-- team spawns: two columns of five, facing into the map
+		-- team spawns: two columns of five, facing into the map (the front one at Z 0 sits beside the
+		-- canopy post, not right behind it)
 		for _, z in { -100, -50, 0, 50, 100 } do
 			for _, x in { 150, 167 } do
-				spawnPart(s * x, z + (if x == 167 then 8 else 0), 0, z, team, false)
+				spawnPart(s * x, z + (if x == 167 then 8 elseif z == 0 then 6 else 0), 0, z, team, false)
 			end
 		end
 	end

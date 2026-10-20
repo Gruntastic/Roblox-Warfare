@@ -867,8 +867,9 @@ function MapModule.build(): Model
 		crate(s * 125.5, 0, -16, 3)
 		blk(s * 124, 0, 60, s * 127.8, 4, 64, P.metal, "ToolChest")
 
-		-- team spawns: two columns, facing into the map
-		for _, z in { -84, -52, -18, 16, 52, 86 } do
+		-- team spawns: two columns, facing into the map. Nothing sits in front of the screens that
+		-- cover the gaps (|Z| 78..98), or the first view after spawning is a wall 4 studs away.
+		for _, z in { -72, -52, -18, 16, 52, 70 } do
 			spawnPart(s * 120, 0, z, 0, z * 0.5, team, false)
 		end
 		for _, z in { -68, -36, 0, 36, 68 } do

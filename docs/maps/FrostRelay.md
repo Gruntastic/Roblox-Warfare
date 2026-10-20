@@ -92,7 +92,7 @@ Cross-connections let players rotate between lanes:
 ## Spawn logic
 
 - **Sable** spawns in the west camp (X -178..-126) and **Talon** in the east camp (X 126..178). The layout is mirror-symmetric across X = 0. Only accent colours and camp dressing differ (Sable: supply tent and snowmobiles; Talon: helipad and fuel bladder).
-- There are 12 team spawns per side, in two columns (|X| = 148 and 166) spread from Z -100 to 92, all facing the map centre. The team centroids are about 314 studs apart. The closest enemy spawn pair is about 296 studs apart.
+- There are 12 team spawns per side, in two columns (|X| = 148 and 166) spread from Z -88 to 92, all facing the map centre. The front column stands in the lanes between the huts. The team centroids are about 314 studs apart. The closest enemy spawn pair is about 296 studs apart.
 - Each camp is closed off by a 14-tall blast wall at |X| 126..128 with five gaps:
   - G1, the gallery mouth (Z -128..-114)
   - G2, the ice (Z -96..-84)

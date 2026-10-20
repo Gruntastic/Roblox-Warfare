@@ -10,6 +10,7 @@ local player = Players.LocalPlayer
 local CameraController = {}
 
 local drift = 0
+local facedCharacter: Model? = nil -- the character whose spawn facing the camera already took
 
 local function lobbyCFrame(): CFrame?
 	local map = workspace:FindFirstChild("Map")
@@ -26,6 +27,16 @@ local function update(dt: number)
 			if humanoid then
 				cam.CameraSubject = humanoid
 			end
+		end
+		-- Once per life, look where the spawn faces. Otherwise the camera keeps its old yaw and the
+		-- first-person character turns to match it, often towards the spawn's back wall.
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if character and root and character ~= facedCharacter then
+			facedCharacter = character
+			local look = root.CFrame.LookVector
+			local eye = root.Position + Vector3.new(0, 1.5, 0)
+			cam.CFrame = CFrame.lookAt(eye, eye + Vector3.new(look.X, 0, look.Z))
 		end
 		UserInputService.MouseIconEnabled = false
 		return

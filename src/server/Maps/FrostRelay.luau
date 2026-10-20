@@ -858,10 +858,13 @@ function MapModule.build(): Model
 			blk(170, 0, 60, 177, 2.8, 76, P.rubber, "FuelBladder")
 		end
 
-		-- team spawns: two columns of six, facing into the map
+		-- team spawns: two columns of six, facing into the map. The front column (|X| 148) sits in
+		-- the lanes between the huts so the first view is not a hut wall a few studs away.
 		for i, z in { -100, -64, -28, 8, 44, 80 } do
-			spawnPart(s * 148, 0, z, 0, z * 0.5, team, false)
 			spawnPart(s * 166, 0, z + 10 + (i % 2) * 2, 0, z * 0.5, team, false)
+		end
+		for _, z in { -72, -52, -36, 8, 30, 86 } do
+			spawnPart(s * 148, 0, z, 0, z * 0.5, team, false)
 		end
 	end
 
