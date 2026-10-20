@@ -1,4 +1,4 @@
-# Status report: Phases 1–7
+# Status report: Phases 1–8
 
 Last updated: 2026-10-20. Phase 2 evidence: commit `8a766db`. Phase 3 evidence: the Phase 3 playtest commit and later. Phase 4 evidence: commit `13e75e8`. Phase 5 evidence: commit `e334c3d` and the Phase 5 report commit (screenshots in `docs/qa/phase5`).
 
@@ -267,3 +267,7 @@ touches still need a phone or the device emulator). The Great Hall is visibly li
    private server, to clear the combat items above. `docs/QA_CHECKLIST.md` lists the steps.
 4. **Create the Founder Pack developer product** on the published game and put its id in
    `src/shared/Config/Store.luau` (`productId`). Until then the bundle shows COMING SOON.
+
+## Phase 8: testing and launch readiness
+
+See `docs/LAUNCH_READINESS.md` (verdict and blockers) and `docs/KNOWN_ISSUES.md`.
