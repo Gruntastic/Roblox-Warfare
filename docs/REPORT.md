@@ -1,6 +1,6 @@
-# Status report: Phases 1–3
+# Status report: Phases 1–4
 
-Last updated: 2026-10-20. Phase 2 evidence: commit `8a766db`. Phase 3 evidence: the Phase 3 playtest commit and later.
+Last updated: 2026-10-20. Phase 2 evidence: commit `8a766db`. Phase 3 evidence: the Phase 3 playtest commit and later. Phase 4 evidence: commit `13e75e8`.
 
 This report separates what was **executed with evidence** from what is **written but not yet exercised**.
 Nothing below is claimed as tested unless it was run.
@@ -102,11 +102,58 @@ reticles. `luau-lsp analyze` (strict) is clean over `src/`.
 5. QuickMag on small sniper magazines rounded back up to the full size. Reductions now always cost
    at least one round.
 
+## Phase 4: maps and modes
+
+### What shipped
+- Six maps: Dustline Terminal (now with objectives), Frost Relay, Iron Borough, Red Mesa, Breakwater
+  and Ashwood Estate. Every map is built from code and checked by one shared contract
+  (`docs/MAP_CONTRACT.md`, `tests/lib/MapContract.luau`): bounds, no holes, spawn spacing and sight
+  lines, objective placement for every mode.
+- Six modes: Team Deathmatch, Free-for-All, Domination, Search and Destroy, Hardpoint and Kill
+  Confirmed. Objective scoring, plant/defuse, round flow and tag pickup all run on the server;
+  objective XP goes through the same ledger and per-minute cap as kill XP.
+- The lobby offers three map + mode pairings to vote on; the HUD shows flags, the hardpoint, the
+  bomb state and FFA standings.
+
+### Automated
+232 tests pass (`lune run tests/run.luau`), type check clean (`luau-lsp analyze`, 0 errors).
+
+### Studio playtest (single client, commits `6ddafa8` then `13e75e8`)
+Studio was synced from GitHub at the commit with `tools/studio_fetch.py` (every file checksum-checked;
+HttpEnabled restored to off afterwards). Screenshots are in `docs/qa/phase4/`.
+- Lobby vote: three cards render; clicking one marks it, shows 1 VOTE, and the header switches to
+  that pairing (Iron Borough / Kill Confirmed) (01, 02).
+- Kill Confirmed, Iron Borough: dying drops a team-coloured tag on the floor; walking over your own
+  team's tag removes it, scores no team point, and pays "Kill Denied +50" on the results (04).
+- Domination, Breakwater: standing on Flag B captures it (HUD B turns blue) and the team score ticks
+  every 5 s (3, then 15, then 17).
+- Search and Destroy, Iron Borough: "You have the bomb" banner; holding E on site A plants it
+  (+200, "Bomb planted at A", 40 s timer); the detonation wins round 1 and round 2 starts with the
+  bomb re-issued and the round pips at 1–0 (05, 06).
+- Hardpoint, Ashwood Estate: goes live after 10 s; holding it shows SECURED, scores 1/s and pays +25
+  every 5 s; after 60 s it moves and shows UNCLAIMED with the next timer (10, 12).
+- Free-for-All, Red Mesa: "YOU / NO RIVALS" header, first to 30, 1ST PLACE podium on results (08, 09).
+- Team Deathmatch, Frost Relay: HUD and spawn verified after the fixes below (13).
+- Respawn: after dying while facing south, the new life starts facing the spawn direction (camera
+  and character both +X).
+
+### Defects found in the Phase 4 playtest and fixed
+1. After spawning, the camera kept its old yaw, so the first-person character turned to face it,
+   often a wall. The camera now takes the spawn's facing once per life (03).
+2. Eight team spawns per side on three maps faced a wall, screen or post 4–6 studs away (Iron
+   Borough corners, Frost Relay front row, Dustline centre). They were moved, and the map contract
+   now requires 8 studs of open space ahead of every team spawn (11, 13).
+3. A lone player in Free-for-All was awarded Victory XP with 0 kills. There is now no FFA winner
+   unless someone has a kill (and still none on a tie).
+
 ### Studio-only QA hooks
-Both only work in Studio. `QA_GrantLevels` also requires temporary (unpublished) profiles.
+All of these only work in Studio. `QA_GrantLevels` also requires temporary (unpublished) profiles.
 - `workspace:SetAttribute("QA_GrantLevels", 30)` raises the account and every weapon to that level.
 - `workspace:SetAttribute("QA_HoldLobby", true)` keeps the lobby countdown from running out; set it
   to nil to let the match start.
+- `workspace:SetAttribute("QA_EndMatch", true)` ends the current match now.
+- `workspace:SetAttribute("QA_Mode", "SND")` and `("QA_Map", "FrostRelay")` force the next match.
+  Clear them again before saving the place.
 
 ## Written but not yet exercised
 
@@ -120,7 +167,12 @@ Both only work in Studio. `QA_GrantLevels` also requires temporary (unpublished)
 - Gunsmith on touch and gamepad.
 - MovementGuard speed rubber-banding has not been triggered.
 - The third-person world weapon, as seen by other players.
-- Map vote with more than one map (only Dustline Terminal exists).
+- Kill Confirmed: an enemy picking up a tag (confirm). Only deny was possible solo.
+- Search and Destroy: defusing, elimination wins, the side swap after round 3, the final round,
+  and spectating a teammate while dead. Solo play only reaches attack-side planting.
+- Domination and Hardpoint with both teams in a zone (contested), and captures from an enemy flag.
+- The objective XP per-minute cap under real play.
+- Breakwater, Red Mesa and Ashwood Estate were seen in one mode each; not every map was walked fully.
 - Late-join DEPLOY button flow.
 - Touch, gamepad and small-screen layouts.
 - Performance with 12 players.
@@ -137,7 +189,13 @@ Both only work in Studio. `QA_GrantLevels` also requires temporary (unpublished)
 - Studio patching: `tools/studio_patch.py` moves its base forward when it writes a patch. If the
   patch is then not applied, reset that file in `studio_base` from git before generating again.
 - The HUD stays visible under the death screen overlay. This is acceptable for now; revisit in polish.
-- Results with a single player always show DRAW (0–0), which is correct behaviour.
+- Results with a single player always show DRAW (0–0), which is correct behaviour. In FFA a lone
+  player now sees 1ST PLACE with "No outright winner" and gets no Victory XP.
+- During the Phase 4 playtest Studio stopped drawing the 3D view for a few minutes (white screen,
+  HUD still drawn; exposure changes had no effect). It recovered on its own and happened on two
+  maps, so it is treated as a Studio/display issue on the test machine, not a game bug (07).
+- Ashwood Estate's Great Hall interior is dark next to the other maps. Readable, but a lighting
+  polish item for Phase 7.
 - The game title "Call of Roblox" still needs the trademark and policy review called for in the brief
   before any public release.
 - Studio sync is done through MCP scripts, not the Rojo plugin. `tools/studio_patch.py` sends only

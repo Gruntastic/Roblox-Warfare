@@ -65,6 +65,21 @@ Tip: in Studio, `workspace:SetAttribute("QA_GrantLevels", 30)` unlocks everythin
 - [x] Extended magazines raise the server magazine size (HUD shows the new size after spawning)
 - [x] Server rejects unknown attachments and attachments the weapon has no slot for
 
+## Maps and modes (Phase 4)
+- [x] Lobby shows three map + mode cards; a vote marks the card, counts it, and updates the header
+- [x] QA_Mode / QA_Map / QA_EndMatch switch the next match in Studio
+- [x] Kill Confirmed: a tag drops on death; your own team's tag is denied (+50, no team point)
+- [ ] Kill Confirmed: an enemy's tag is confirmed (+1 team point) (needs 2 players)
+- [x] Domination: standing alone on a flag captures it and the team scores every 5 s
+- [ ] Domination: both teams on a flag freezes it (contested); capturing an enemy flag drains it first
+- [x] Hardpoint: goes live after 10 s, scores 1/s, +25 every 5 s, rotates after 60 s
+- [x] Search and Destroy: hold E on a site to plant (+200); the detonation wins the round; next round starts
+- [ ] Search and Destroy: defuse, elimination win, side swap after round 3, spectating while dead (needs 2+ players)
+- [x] Free-for-All: own-score header and placing podium on results
+- [x] A new life starts looking where the spawn faces
+- [x] Each map loads with its lighting: Iron Borough (night), Breakwater, Red Mesa, Ashwood Estate, Frost Relay
+- [ ] Walk every map end to end looking for stuck spots and gaps
+
 ## Progression and persistence (published place)
 - [x] Match complete and time played XP are granted; the results breakdown matches
 - [x] The lobby rank bar reflects XP after returning from Results
@@ -83,3 +98,4 @@ Tip: in Studio, `workspace:SetAttribute("QA_GrantLevels", 30)` unlocks everythin
 |---|---|---|---|---|
 | 2026-10-20 | 8a766db | Claude (Studio via MCP, 1 client) | Phase 2 items marked ✓ | Pass, after 4 fixes |
 | 2026-10-20 | Phase 3 playtest commit | Claude (Studio via MCP, 1 client) | Phase 3 items marked ✓ | Pass, after 4 fixes |
+| 2026-10-20 | 6ddafa8 → 13e75e8 | Claude (Studio via MCP, 1 client) | Phase 4 items marked ✓ | Pass, after 3 fixes |
