@@ -1,0 +1,22 @@
+{
+  "name": "CallOfRoblox",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Shared": { "$path": "src/shared" }
+    },
+    "ServerScriptService": {
+      "Server": { "$path": "src/server" }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": { "$path": "src/client" }
+      },
+      "$properties": { "CameraMode": "LockFirstPerson", "CharacterWalkSpeed": 16 }
+    },
+    "Workspace": {
+      "$properties": { "StreamingEnabled": true }
+    },
+    "Players": { "$properties": { "CharacterAutoLoads": false } }
+  }
+}
