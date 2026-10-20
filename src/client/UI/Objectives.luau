@@ -1804,6 +1804,18 @@ function Objectives.init()
 	end
 
 	refreshActive()
+	-- Phase 7: an enemy Blackout knocks out the objective strip with the rest of the HUD (the
+	-- plant / defuse prompt and world markers stay, so the objective stays playable)
+	local function refreshBlackout()
+		strip.Visible = not ClientState.isBlackedOut()
+	end
+	ClientState.HudEffectsChanged:Connect(refreshBlackout)
+	task.spawn(function()
+		while true do
+			task.wait(0.5)
+			refreshBlackout() -- catches a Blackout whose endsAt passed without an EffectEnded
+		end
+	end)
 end
 
 function Objectives.start()

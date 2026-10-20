@@ -489,6 +489,26 @@ local function bindInput()
 	ContextActionService:BindAction("COR_Swap", swapAction, false, Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.ButtonY)
 	ContextActionService:BindAction("COR_Melee", meleeAction, false, Enum.KeyCode.V, Enum.KeyCode.ButtonR3)
 
+	-- Phase 7: on-screen touch buttons. ADS toggles on touch (holding a second finger is awkward).
+	ClientState.TouchAction:Connect(function(name: string, down: boolean)
+		local state = if down then Enum.UserInputState.Begin else Enum.UserInputState.End
+		if name == "Fire" then
+			fireAction(name, state)
+		elseif name == "ADS" and down then
+			adsHeld = not adsHeld
+		elseif name == "Reload" and down then
+			startReload()
+		elseif name == "Swap" and down and canAct() then
+			equip(if ClientState.equippedSlot == "Primary" then "Secondary" else "Primary", true)
+		elseif name == "Melee" and down then
+			melee()
+		end
+	end)
+	ClientState.DeployedChanged:Connect(function()
+		adsHeld = false
+		triggerHeld = false
+	end)
+
 	UserInputService.InputChanged:Connect(function(input, processed)
 		if processed or input.UserInputType ~= Enum.UserInputType.MouseWheel or not canAct() then
 			return

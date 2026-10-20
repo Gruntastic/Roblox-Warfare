@@ -52,6 +52,9 @@ local ClientState = {
 	Mark = Signal.new() :: Signal.Signal<number, number>, -- victimUserId, seconds (Tracker perk)
 	HudEffectsChanged = Signal.new() :: Signal.Signal<()>, -- jammedUntil / blackoutUntil changed
 	MenuChanged = Signal.new() :: Signal.Signal<()>,
+	-- Phase 7: on-screen touch controls (UI/TouchControls) -> controllers. name: "Fire" | "ADS" |
+	-- "Reload" | "Swap" | "Melee" | "Sprint" | "Crouch"; down = pressed (true) or released (false)
+	TouchAction = Signal.new() :: Signal.Signal<string, boolean>,
 }
 
 -- Full-screen menus register here so gameplay input (killstreak keys) can ignore presses meanwhile.

@@ -645,13 +645,25 @@ function MapModule.build(): Model
 	for _, c in { { -8, -20.5 }, { 8, -20.5 }, { -8, 20.5 }, { 8, 20.5 } } do
 		cylY(c[1], 0, c[2], FLOOR2 - 1, 1.6, P.marble, "HallColumn")
 	end
-	blk(-3, 21, -3, 3, 22, 3, soft(P.lamp), "Chandelier")
+	local chandelier = blk(-3, 21, -3, 3, 22, 3, soft(P.lamp), "Chandelier")
+	-- Phase 7: the Great Hall read too dark; the chandelier and the fireplaces light it
+	local hallLight = Instance.new("PointLight")
+	hallLight.Color = Color3.fromRGB(255, 214, 160)
+	hallLight.Range = 46
+	hallLight.Brightness = 2.2
+	hallLight.Shadows = true
+	hallLight.Parent = chandelier
 	cylY(0, 22, 0, EAVES, 0.3, soft(P.iron), "ChandelierChain")
 	-- hall furniture: two settees facing a round table off-centre
 	bench(0, -9, 10, false, P.fabric)
 	bench(0, 9, 10, false, P.fabric)
-	blk(-23.5, 0, -27.5, -19, 9, -24, P.marble, "HallFireplace")
-	blk(19, 0, 24, 23.5, 9, 27.5, P.marble, "HallFireplace")
+	for _, fp in { blk(-23.5, 0, -27.5, -19, 9, -24, P.marble, "HallFireplace"), blk(19, 0, 24, 23.5, 9, 27.5, P.marble, "HallFireplace") } do
+		local glow = Instance.new("PointLight")
+		glow.Color = Color3.fromRGB(255, 140, 70)
+		glow.Range = 18
+		glow.Brightness = 1.5
+		glow.Parent = fp
+	end
 	-- roof: slate slab, gables (ridge along X), chimneys
 	blk(-67, EAVES, -31, 67, EAVES + 1, 31, P.slateDark, "ManorRoofSlab")
 	wedge(CFrame.new(0, EAVES + 1 + 5, -15.5), Vector3.new(134, 10, 31), P.slate, "ManorRoof")

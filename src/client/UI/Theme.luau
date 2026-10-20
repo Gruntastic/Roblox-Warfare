@@ -7,6 +7,7 @@
 -- virtual 1080p pixels) for text and fine detail, so 1280x720 through 4K and phones all look alike.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
@@ -260,7 +261,12 @@ local scaled: { { scale: UIScale, canvas: Frame } } = {}
 local currentScale = 1
 local cameraConn: RBXScriptConnection? = nil
 
+-- Touch layout. In Studio, workspace attribute QA_ForceTouch = true turns it on with a mouse, so the
+-- touch controls can be playtested on a desktop (the buttons also accept mouse clicks).
 local function isTouchOnly(): boolean
+	if RunService:IsStudio() and workspace:GetAttribute("QA_ForceTouch") == true then
+		return true
+	end
 	return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 end
 Theme.isTouchOnly = isTouchOnly

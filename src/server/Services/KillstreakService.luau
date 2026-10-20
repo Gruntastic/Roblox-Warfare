@@ -338,6 +338,31 @@ local function buildSentry(effect: Effect, base: CFrame, health: number): (Model
 	lamp.Range = 6
 	lamp.Brightness = 1
 	lamp.Parent = head
+	-- Phase 7: health bar over the head (fill follows the Health attribute)
+	local bill = Instance.new("BillboardGui")
+	bill.Name = "HealthBar"
+	bill.Size = UDim2.fromOffset(60, 7)
+	bill.StudsOffset = Vector3.new(0, 1.6, 0)
+	bill.AlwaysOnTop = false
+	bill.MaxDistance = 120
+	local back = Instance.new("Frame")
+	back.BackgroundColor3 = Color3.fromRGB(20, 20, 22)
+	back.BorderSizePixel = 0
+	back.Size = UDim2.fromScale(1, 1)
+	back.Parent = bill
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.BackgroundColor3 = Color3.fromRGB(255, 176, 32)
+	fill.BorderSizePixel = 0
+	fill.Size = UDim2.fromScale(1, 1)
+	fill.Parent = back
+	bill.Parent = head
+	model:GetAttributeChangedSignal("Health"):Connect(function()
+		local hp, max = model:GetAttribute("Health"), model:GetAttribute("MaxHealth")
+		if type(hp) == "number" and type(max) == "number" and max > 0 then
+			fill.Size = UDim2.fromScale(math.clamp(hp / max, 0, 1), 1)
+		end
+	end)
 	model.PrimaryPart = head
 	model.Parent = streakFolder()
 	return model, head, barrel

@@ -132,6 +132,17 @@ function MovementController.start()
 		end
 		return Enum.ContextActionResult.Pass
 	end, false, Enum.KeyCode.C, Enum.KeyCode.LeftControl, Enum.KeyCode.ButtonB)
+	-- Phase 7: on-screen touch buttons; sprint toggles on touch
+	ClientState.TouchAction:Connect(function(name: string, down: boolean)
+		if not down or not ClientState.deployed then
+			return
+		end
+		if name == "Sprint" then
+			sprintHeld = not sprintHeld
+		elseif name == "Crouch" then
+			setCrouch(not crouched)
+		end
+	end)
 	RunService:BindToRenderStep("COR_Movement", Enum.RenderPriority.Input.Value + 1, update)
 end
 
