@@ -5,7 +5,7 @@
 -- server sees exactly the same requests as from a mouse or gamepad. Moving and looking use Roblox's
 -- default thumbstick and camera drag, which these buttons leave free (left half and the middle).
 --
--- Layout (right thumb): a large FIRE button, ADS beside it, RELOAD / SWAP above, and MELEE, CROUCH
+-- Layout (right thumb, kept above the streak tray and ammo panel in the bottom-right corner): a large FIRE button, ADS beside it, RELOAD / SWAP above, and MELEE, CROUCH
 -- and SPRINT in a column at the right edge above the jump button. A small FIRE on the left lets
 -- players shoot while steering the camera with the right thumb.
 local Players = game:GetService("Players")
@@ -20,19 +20,21 @@ local C = Theme.Colors
 
 type Spec = { name: string, text: string, size: number, pos: UDim2, hold: boolean?, toggle: boolean? }
 
--- Positions are anchored at each button's centre.
+-- Positions are anchored at each button's centre, in the Theme's virtual canvas (820 units tall on
+-- touch), from the top so the cluster stays above the streak tray and ammo panel on every screen.
 local SPECS: { Spec } = {
-	{ name = "Fire", text = "FIRE", size = 118, pos = UDim2.new(1, -150, 1, -250), hold = true },
+	{ name = "Fire", text = "FIRE", size = 118, pos = UDim2.new(1, -160, 0, 330), hold = true },
 	{ name = "FireLeft", text = "FIRE", size = 84, pos = UDim2.new(0, 110, 0.42, 0), hold = true },
-	{ name = "ADS", text = "AIM", size = 84, pos = UDim2.new(1, -270, 1, -200), toggle = true },
-	{ name = "Reload", text = "RELOAD", size = 68, pos = UDim2.new(1, -150, 1, -370) },
-	{ name = "Swap", text = "SWAP", size = 68, pos = UDim2.new(1, -250, 1, -330) },
-	{ name = "Melee", text = "MELEE", size = 60, pos = UDim2.new(1, -50, 1, -410) },
-	{ name = "Crouch", text = "CROUCH", size = 60, pos = UDim2.new(1, -50, 1, -336), toggle = true },
-	{ name = "Sprint", text = "SPRINT", size = 60, pos = UDim2.new(1, -50, 1, -262), toggle = true },
+	{ name = "ADS", text = "AIM", size = 84, pos = UDim2.new(1, -290, 0, 360), toggle = true },
+	{ name = "Reload", text = "RELOAD", size = 68, pos = UDim2.new(1, -160, 0, 190) },
+	{ name = "Swap", text = "SWAP", size = 68, pos = UDim2.new(1, -270, 0, 240) },
+	{ name = "Melee", text = "MELEE", size = 60, pos = UDim2.new(1, -56, 0, 130) },
+	{ name = "Crouch", text = "CROUCH", size = 60, pos = UDim2.new(1, -56, 0, 210), toggle = true },
+	{ name = "Sprint", text = "SPRINT", size = 60, pos = UDim2.new(1, -56, 0, 290), toggle = true },
 }
 
 local gui: ScreenGui
+local canvas: Frame
 local buttons: { [string]: TextButton } = {}
 local toggled: { [string]: boolean } = {}
 
@@ -70,7 +72,7 @@ local function build(spec: Spec)
 		Position = spec.pos,
 		Size = UDim2.fromOffset(spec.size, spec.size),
 		Selectable = false,
-		Parent = gui,
+		Parent = canvas,
 	}, { Theme.new("UICorner", { CornerRadius = UDim.new(0.5, 0) }) :: Instance, Theme.stroke(C.Accent, 2, 0.4) })
 	buttons[spec.name] = b
 	local activeInput: InputObject? = nil
@@ -117,11 +119,7 @@ function TouchControls.isShown(): boolean
 end
 
 function TouchControls.init()
-	gui = Instance.new("ScreenGui")
-	gui.Name = "COR_TouchControls"
-	gui.ResetOnSpawn = false
-	gui.IgnoreGuiInset = true
-	gui.DisplayOrder = 6
+	gui, canvas = Theme.screen("TouchControls", 6)
 	gui.Enabled = false
 	for _, spec in SPECS do
 		build(spec)
