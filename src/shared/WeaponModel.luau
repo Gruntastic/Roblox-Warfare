@@ -5,11 +5,12 @@
 -- "Muzzle" (tracer / flash origin) and "Sight" (the eye point ADS aligns the camera to).
 local Shared = script.Parent
 local Attachments = require(Shared.Config.Attachments)
+local Cosmetics = require(Shared.Config.Cosmetics)
 local WeaponStats = require(Shared.Pure.WeaponStats)
 
 local WeaponModel = {}
 
-local function addPart(model: Model, grip: BasePart, spec: any, offset: CFrame, opts: any)
+local function addPart(model: Model, grip: BasePart, spec: any, offset: CFrame, opts: any): BasePart
 	local p = Instance.new("Part")
 	p.Name = spec.name
 	p.Shape = if spec.shape == "Cylinder" then Enum.PartType.Cylinder else Enum.PartType.Block
@@ -30,9 +31,27 @@ local function addPart(model: Model, grip: BasePart, spec: any, offset: CFrame, 
 	weld.C0 = offset
 	weld.Parent = p
 	p.Parent = model
+	return p
 end
 
-function WeaponModel.build(def: any, opts: { collide: boolean?, castShadow: boolean?, attachments: { [string]: string }? }?): Model
+-- Repaints a built weapon's body parts with a camo (Config/Cosmetics). Unknown ids and "Factory"
+-- leave the model as built. Only the weapon's own parts are touched, never attachments.
+function WeaponModel.applyCamo(model: Model, camoId: string?)
+	local camo = if camoId then Cosmetics.camoById[camoId] else nil
+	if not camo or camo.id == Cosmetics.DefaultCamo then
+		return
+	end
+	for _, child in model:GetChildren() do
+		local role = if child:IsA("BasePart") and child:GetAttribute("WeaponBody") then Cosmetics.CamoParts[child.Name] else nil
+		if role then
+			local p = child :: BasePart
+			p.Color = if role == "Accent" then camo.accent or camo.color else camo.color
+			p.Material = camo.material
+		end
+	end
+end
+
+function WeaponModel.build(def: any, opts: { collide: boolean?, castShadow: boolean?, attachments: { [string]: string }?, camo: string? }?): Model
 	local model = Instance.new("Model")
 	model.Name = def.id
 	local grip = Instance.new("Part")
@@ -51,7 +70,7 @@ function WeaponModel.build(def: any, opts: { collide: boolean?, castShadow: bool
 	local hasMag = selection ~= nil and selection.Magazine ~= nil and Attachments[selection.Magazine] ~= nil
 	for _, spec in def.model do
 		if not (hasMag and spec.name == "Magazine") then
-			addPart(model, grip, spec, spec.offset, opts)
+			addPart(model, grip, spec, spec.offset, opts):SetAttribute("WeaponBody", true)
 		end
 	end
 
@@ -86,6 +105,7 @@ function WeaponModel.build(def: any, opts: { collide: boolean?, castShadow: bool
 	sight.Name = "Sight"
 	sight.CFrame = effective.sightOffset
 	sight.Parent = grip
+	WeaponModel.applyCamo(model, opts and opts.camo)
 	return model
 end
 

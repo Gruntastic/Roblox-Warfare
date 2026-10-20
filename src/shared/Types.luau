@@ -15,6 +15,8 @@ export type PlayerLine = {
 	score: number,
 	level: number?,
 	prestige: number?,
+	title: string?, -- Phase 5: equipped title id (Config/Cosmetics.titles)
+	emblem: string?, -- Phase 5: equipped prestige emblem id, if any
 }
 
 -- One lobby vote option: a map + mode pairing. `votes` in MatchStatePayload is keyed by option id.
@@ -113,17 +115,60 @@ export type Loadout = {
 	secondary: string,
 	primaryAttachments: { [string]: string }, -- attachment slot -> attachment id
 	secondaryAttachments: { [string]: string },
+	perks: { string }, -- Phase 5: one perk id per tier, sanitized (always three)
+	streaks: { string }, -- Phase 5: up to three killstreak ids, sanitized
 }
+
+-- Phase 5 -------------------------------------------------------------------------------------
+
+export type ChallengeView = { id: string, text: string, progress: number, target: number, xp: number, done: boolean }
+
+export type CosmeticsView = {
+	equipped: { title: string, emblem: string?, camos: { [string]: string } }, -- camos: weaponId -> camoId (absent = Factory)
+	owned: { titles: { string }, emblems: { string }, camos: { [string]: { string } } }, -- camos per weapon id
+}
+
+-- Sent on `StreakState` to the owner whenever it changes (kill, death, use, match start).
+export type StreakStatePayload = {
+	count: number, -- kills this life that count toward streaks
+	equipped: { { id: string, cost: number } }, -- in loadout order, costs after perk discounts
+	ready: { string }, -- earned and not yet used, oldest first
+	nextId: string?, -- the next streak to earn this life
+	nextAt: number?, -- the kill count that earns it
+}
+
+-- Sent on `Ping` to every member of a team with an active Recon Drone (not to Ghost Signal targets'
+-- team's benefit: they are left out of `targets`). Positions are a snapshot; the HUD fades them.
+export type PingPayload = { targets: { { userId: number, position: Vector3 } }, expiresAt: number }
 
 export type ProfileSummary = {
 	userId: number,
 	account: { level: number, xp: number, needed: number, prestige: number },
-	weapons: { [string]: { level: number, xp: number, needed: number, kills: number } },
-	stats: { kills: number, deaths: number, matches: number, wins: number },
+	weapons: { [string]: { level: number, xp: number, needed: number, kills: number, headshots: number } },
+	stats: {
+		kills: number,
+		deaths: number,
+		matches: number,
+		wins: number,
+		headshots: number,
+		assists: number,
+		captures: number,
+		plants: number,
+		defuses: number,
+		tags: number,
+		dailies: number,
+	},
 	loadouts: { Loadout },
 	selectedLoadout: number,
 	unlockedWeapons: { string },
 	temporary: boolean, -- true when DataStores are unavailable (progress will NOT persist)
+	-- Phase 5
+	unlockedPerks: { string },
+	unlockedStreaks: { string },
+	challenges: { list: { ChallengeView }, resetsAt: number }, -- resetsAt: os.time() of the next UTC day
+	cosmetics: CosmeticsView,
+	canPrestige: boolean,
+	maxPrestige: number,
 }
 
 export type MatchResultsPayload = {

@@ -13,6 +13,13 @@ local Weapons = require(Shared.Config.Weapons)
 local Attachments = require(Shared.Config.Attachments)
 local WeaponStats = require(Shared.Pure.WeaponStats)
 local Progression = require(Shared.Config.Progression)
+local Perks = require(Shared.Config.Perks)
+local Killstreaks = require(Shared.Config.Killstreaks)
+local Challenges = require(Shared.Config.Challenges)
+local PerkRules = require(Shared.Pure.PerkRules)
+local StreakRules = require(Shared.Pure.StreakRules)
+local ChallengeRules = require(Shared.Pure.ChallengeRules)
+local CosmeticRules = require(Shared.Pure.CosmeticRules)
 local DataService = require(script.Parent.DataService)
 
 type MatchLedger = {
@@ -79,10 +86,41 @@ local function loadoutsView(profile: any): { Types.Loadout }
 			secondary = l.secondary,
 			primaryAttachments = attachmentsFor(profile, l.primary, l.primaryAttachments),
 			secondaryAttachments = attachmentsFor(profile, l.secondary, l.secondaryAttachments),
+			perks = PerkRules.sanitize(l.perks, profile.account.level, profile.account.prestige),
+			streaks = StreakRules.sanitize(l.streaks, profile.account.level, profile.account.prestige),
 		}
 	end
 	return out
 end
+
+-- Today's challenges as the client should see them. Rolls the set over on a new UTC day.
+function ProgressionService.challengesView(player: Player, profile: any): { list: { Types.ChallengeView }, resetsAt: number }
+	local now = os.time()
+	if ChallengeRules.refresh(profile.challenges, player.UserId, now) then
+		DataService.markDirty(player)
+	end
+	local list = {}
+	for _, e in profile.challenges.daily do
+		local def = Challenges.byId[e.id]
+		if def then
+			table.insert(list, { id = def.id, text = ChallengeRules.text(def), progress = e.progress, target = def.target, xp = def.xp, done = e.done })
+		end
+	end
+	return { list = list, resetsAt = now + ChallengeRules.secondsLeft(now) }
+end
+
+-- The equipped cosmetics a player shows, with anything no longer owned dropped.
+function ProgressionService.cosmeticsFor(player: Player): CosmeticRules.Equipped
+	local profile = DataService.getProfile(player)
+	if not profile then
+		return CosmeticRules.sanitizeEquipped({ account = { prestige = 0 }, weapons = {}, stats = {}, inventory = {} }, nil)
+	end
+	return CosmeticRules.sanitizeEquipped(profile, profile.equipped)
+end
+
+-- Phase 5 hook for daily challenges and lifetime stats. Implemented by ChallengeService, which
+-- replaces this function in its init(); callers (combat, modes, killstreaks) just report events.
+function ProgressionService.recordEvent(_player: Player, _event: ChallengeRules.Event) end
 
 function ProgressionService.summary(player: Player): Types.ProfileSummary?
 	local profile = DataService.getProfile(player)
@@ -91,24 +129,60 @@ function ProgressionService.summary(player: Player): Types.ProfileSummary?
 	end
 	local weapons = {}
 	local unlocked = {}
+	local weaponIds = {}
 	for id in Weapons do
-		local w = profile.weapons[id] or { level = 1, xp = 0, kills = 0 }
+		local w = profile.weapons[id] or { level = 1, xp = 0, kills = 0, headshots = 0 }
 		local p = Leveling.progress(w, Progression.WeaponCurve, Progression.MaxWeaponLevel)
-		weapons[id] = { level = p.level, xp = p.xp, needed = p.needed, kills = w.kills }
+		weapons[id] = { level = p.level, xp = p.xp, needed = p.needed, kills = w.kills, headshots = w.headshots or 0 }
+		table.insert(weaponIds, id)
 		if ProgressionService.isWeaponUnlocked(profile, id) then
 			table.insert(unlocked, id)
 		end
 	end
+	local level, prestige = profile.account.level, profile.account.prestige
+	local unlockedPerks, unlockedStreaks = {}, {}
+	for _, def in Perks.list do
+		if PerkRules.isUnlocked(def.unlockLevel, level, prestige) then
+			table.insert(unlockedPerks, def.id)
+		end
+	end
+	for _, def in Killstreaks.list do
+		if PerkRules.isUnlocked(def.unlockLevel, level, prestige) then
+			table.insert(unlockedStreaks, def.id)
+		end
+	end
+	local st = profile.stats
 	local acct = Leveling.progress(profile.account, Progression.AccountCurve, Progression.MaxAccountLevel)
 	return {
 		userId = player.UserId,
 		account = { level = acct.level, xp = acct.xp, needed = acct.needed, prestige = profile.account.prestige },
 		weapons = weapons,
-		stats = { kills = profile.stats.kills, deaths = profile.stats.deaths, matches = profile.stats.matches, wins = profile.stats.wins },
+		stats = {
+			kills = st.kills,
+			deaths = st.deaths,
+			matches = st.matches,
+			wins = st.wins,
+			headshots = st.headshots,
+			assists = st.assists,
+			captures = st.captures,
+			plants = st.plants,
+			defuses = st.defuses,
+			tags = st.tags,
+			dailies = st.dailies,
+		},
 		loadouts = loadoutsView(profile),
 		selectedLoadout = profile.selectedLoadout,
 		unlockedWeapons = unlocked,
 		temporary = DataService.temporary,
+		unlockedPerks = unlockedPerks,
+		unlockedStreaks = unlockedStreaks,
+		challenges = ProgressionService.challengesView(player, profile),
+		cosmetics = {
+			equipped = CosmeticRules.sanitizeEquipped(profile, profile.equipped),
+			owned = CosmeticRules.owned(profile, weaponIds),
+		},
+		canPrestige = CosmeticRules.canPrestige(profile, Progression.MaxAccountLevel, Progression.MaxPrestige),
+		maxPrestige = Progression.MaxPrestige,
 	}
 end
 
@@ -260,6 +334,8 @@ export type ResolvedLoadout = {
 	secondary: string,
 	primaryAttachments: { [string]: string },
 	secondaryAttachments: { [string]: string },
+	perks: { string }, -- always three, one per tier, unlocked
+	streaks: { string }, -- up to three, unlocked
 }
 
 -- The loadout a player spawns with. Locked weapons fall back to the defaults, and attachments
@@ -267,7 +343,7 @@ export type ResolvedLoadout = {
 function ProgressionService.currentLoadout(player: Player): ResolvedLoadout
 	local profile = DataService.getProfile(player)
 	if not profile then
-		return { primary = "VK7", secondary = "P12", primaryAttachments = {}, secondaryAttachments = {} }
+		return { primary = "VK7", secondary = "P12", primaryAttachments = {}, secondaryAttachments = {}, perks = table.clone(Perks.Defaults), streaks = table.clone(Killstreaks.Defaults) }
 	end
 	local l = profile.loadouts[profile.selectedLoadout] or profile.loadouts[1]
 	local primaryOk = ProgressionService.isWeaponUnlocked(profile, l.primary)
@@ -277,6 +353,8 @@ function ProgressionService.currentLoadout(player: Player): ResolvedLoadout
 		secondary = if secondaryOk then l.secondary else "P12",
 		primaryAttachments = if primaryOk then attachmentsFor(profile, l.primary, l.primaryAttachments) else {},
 		secondaryAttachments = if secondaryOk then attachmentsFor(profile, l.secondary, l.secondaryAttachments) else {},
+		perks = PerkRules.sanitize(l.perks, profile.account.level, profile.account.prestige),
+		streaks = StreakRules.sanitize(l.streaks, profile.account.level, profile.account.prestige),
 	}
 end
 
@@ -339,7 +417,31 @@ function ProgressionService.init()
 			ProgressionService.sync(player) -- let the client fall back to the stored loadout
 			return
 		end
+		-- Phase 5: perks and streaks are optional in the request; nil keeps the stored selection
+		local level, prestige = profile.account.level, profile.account.prestige
+		if loadout.perks ~= nil then
+			local ok, why = PerkRules.validate(loadout.perks, level, prestige)
+			if not ok then
+				Net.event("Notify"):FireClient(player, if why == "locked" then "That perk is still locked" else "Invalid perks", "Warning")
+				ProgressionService.sync(player)
+				return
+			end
+		end
+		if loadout.streaks ~= nil then
+			local ok, why = StreakRules.validate(loadout.streaks, level, prestige)
+			if not ok then
+				Net.event("Notify"):FireClient(player, if why == "locked" then "That killstreak is still locked" else "Invalid killstreaks", "Warning")
+				ProgressionService.sync(player)
+				return
+			end
+		end
 		local entry = profile.loadouts[index]
+		if loadout.perks ~= nil then
+			entry.perks = PerkRules.sanitize(loadout.perks, level, prestige) -- validated: a fresh copy of strings
+		end
+		if loadout.streaks ~= nil then
+			entry.streaks = StreakRules.sanitize(loadout.streaks, level, prestige)
+		end
 		entry.primary, entry.secondary = primary, secondary
 		-- store fresh copies made of validated strings only
 		entry.primaryAttachments = WeaponStats.sanitize(pd, pa, ProgressionService.weaponLevel(profile, primary), Attachments)

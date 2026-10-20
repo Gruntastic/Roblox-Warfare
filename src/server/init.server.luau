@@ -9,7 +9,9 @@ local Services = script.Services
 local order: { any } = {
 	require(Services.DataService),
 	require(Services.ProgressionService),
+	require(Services.ChallengeService),
 	require(Services.CombatService),
+	require(Services.KillstreakService),
 	require(Services.MatchService),
 	require(Services.MovementGuard),
 }

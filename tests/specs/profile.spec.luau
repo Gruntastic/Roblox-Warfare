@@ -43,11 +43,11 @@ describe("ProfileSchema", function()
 		expect(#p.loadouts[1].name).toBe(24)
 		expect(p.selectedLoadout).toBe(5)
 	end)
-	it("migrates v2 loadouts to v3 with empty attachment selections", function()
+	it("migrates v2 loadouts to the current version with empty attachment selections", function()
 		local v2 = { version = 2, account = { level = 5, xp = 0, prestige = 0 }, loadouts = { { name = "A", primary = "VK7", secondary = "P12" } } }
 		local p, changed = ProfileSchema.migrate(v2, 100, 5, valid)
 		expect(changed).toBe(true)
-		expect(p.version).toBe(3)
+		expect(p.version).toBe(ProfileSchema.VERSION)
 		expect(next(p.loadouts[1].primaryAttachments)).toBe(nil)
 		expect(next(p.loadouts[5].secondaryAttachments)).toBe(nil)
 	end)
@@ -78,6 +78,56 @@ describe("ProfileSchema", function()
 		local p = ProfileSchema.migrate(v3, 100, 5, valid)
 		expect(p.loadouts[1].primary).toBe("VK7")
 		expect(next(p.loadouts[1].primaryAttachments)).toBe(nil)
+	end)
+	it("migrates v3 to v4: default perks and streaks, new stats at zero, keeps progress", function()
+		local v3 = {
+			version = 3,
+			account = { level = 20, xp = 5, prestige = 1 },
+			stats = { kills = 300, headshots = 40 },
+			weapons = { VK7 = { level = 9, xp = 1, kills = 120 } },
+			loadouts = { { name = "Main", primary = "VK7", secondary = "P12", primaryAttachments = { Optic = "RedDot" }, secondaryAttachments = {} } },
+		}
+		local p, changed = ProfileSchema.migrate(v3, 100, 5, valid)
+		expect(changed).toBe(true)
+		expect(p.version).toBe(4)
+		expect(p.account.prestige).toBe(1)
+		expect(p.stats.kills).toBe(300)
+		expect(p.stats.captures).toBe(0)
+		expect(p.stats.dailies).toBe(0)
+		expect(p.weapons.VK7.kills).toBe(120)
+		expect(p.weapons.VK7.headshots).toBe(0)
+		expect(p.loadouts[1].primaryAttachments.Optic).toBe("RedDot")
+		expect(table.concat(p.loadouts[1].perks, ",")).toBe("Fleetfoot,Quickhands,SecondWind")
+		expect(table.concat(p.loadouts[1].streaks, ",")).toBe("ReconDrone,MortarBarrage")
+		expect(table.concat(p.loadouts[5].perks, ",")).toBe("Fleetfoot,Quickhands,SecondWind")
+		expect(p.equipped.title).toBe("Recruit")
+		expect(p.challenges.day).toBe(0)
+		expect(#p.challenges.daily).toBe(0)
+	end)
+	it("v4 fields keep shape only and drop junk", function()
+		local v4 = {
+			version = 4,
+			loadouts = { { name = "A", primary = "VK7", secondary = "P12", perks = { "Hardline", 5, "BombTech" }, streaks = "x" } },
+			challenges = { day = 20000.5, daily = { { id = "Kills", progress = 7, done = "yes" }, { id = 3 } } },
+			equipped = { title = "Centurion", emblem = 7, camos = { VK7 = "Gilded", [2] = "x" } },
+		}
+		local p = ProfileSchema.migrate(v4, 100, 5, valid)
+		expect(table.concat(p.loadouts[1].perks, ",")).toBe("Hardline")
+		expect(table.concat(p.loadouts[1].streaks, ",")).toBe("ReconDrone,MortarBarrage")
+		expect(p.challenges.day).toBe(20000)
+		expect(#p.challenges.daily).toBe(1)
+		expect(p.challenges.daily[1].progress).toBe(7)
+		expect(p.challenges.daily[1].done).toBe(false)
+		expect(p.equipped.title).toBe("Centurion") -- ownership is checked on use, not here
+		expect(p.equipped.emblem).toBe(nil)
+		expect(p.equipped.camos.VK7).toBe("Gilded")
+		expect(p.equipped.camos[2]).toBe(nil)
+	end)
+	it("schema defaults match the perk and killstreak catalogues", function()
+		local Perks = Loader.load("src/shared/Config/Perks.luau")
+		local Killstreaks = Loader.load("src/shared/Config/Killstreaks.luau")
+		expect(table.concat(ProfileSchema.DEFAULT_PERKS, ",")).toBe(table.concat(Perks.Defaults, ","))
+		expect(table.concat(ProfileSchema.DEFAULT_STREAKS, ",")).toBe(table.concat(Killstreaks.Defaults, ","))
 	end)
 	it("refuses to load profiles from a newer schema", function()
 		expect(function()

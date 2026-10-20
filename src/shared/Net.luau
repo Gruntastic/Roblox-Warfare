@@ -12,11 +12,14 @@ Net.Events = {
 	"Reload", -- (slot: Slot)
 	"Equip", -- (slot: Slot)
 	"Melee", -- () server picks the target in front of the character
-	"SetLoadout", -- (index: number, loadout: { primary: string, secondary: string, primaryAttachments: {[slot]: id}?, secondaryAttachments: {[slot]: id}? })
+	"SetLoadout", -- (index: number, loadout: { primary: string, secondary: string, primaryAttachments: {[slot]: id}?, secondaryAttachments: {[slot]: id}?, perks: {id}?, streaks: {id}? }) nil perks/streaks keep the stored ones
 	"SelectLoadout", -- (index: number)
 	"VoteMap", -- (optionId: string) one of MatchStatePayload.options
 	"Interact", -- (holding: boolean) S&D plant / defuse: true on press, false on release
 	"RequestDeploy", -- () ask to join the running match from the lobby
+	"ActivateStreak", -- (id: string, aimDirection: Vector3?) use an earned killstreak; targeted ones aim from the server head position
+	"Prestige", -- (confirm: string) must be exactly "PRESTIGE"; only at max level, only outside a match
+	"EquipCosmetic", -- (kind: "Camo" | "Title" | "Emblem", id: string, weaponId: string?) camo needs weaponId; Emblem "" unequips
 	-- server -> client
 	"MatchState", -- (MatchStatePayload)
 	"KillFeed", -- (KillFeedPayload)
@@ -27,9 +30,13 @@ Net.Events = {
 	"ProfileSync", -- (ProfileSummary)
 	"MatchResults", -- (MatchResultsPayload)
 	"Tracer", -- (shooterUserId: number, origin: Vector3, hitPos: Vector3) to everyone except shooter
-	"Notify", -- (text: string, kind: "Info" | "Warning" | "LevelUp")
+	"Notify", -- (text: string, kind: "Info" | "Warning" | "LevelUp" | "Challenge")
 	"ObjectiveState", -- (ObjectivePayload)
 	"ObjectiveEvent", -- (kind: string, data: { [string]: any }) one-off banners, see docs/CONTRACTS.md
+	"StreakState", -- (StreakStatePayload) to the owner
+	"StreakEvent", -- (kind: string, data: { [string]: any }) killstreak banners and effects, see docs/PHASE5_CONTRACT.md
+	"Ping", -- (PingPayload) Recon Drone pings, to the drone owner's team
+	"Mark", -- (victimUserId: number, seconds: number) Tracker perk, to the attacker only
 }
 
 Net.Functions = {

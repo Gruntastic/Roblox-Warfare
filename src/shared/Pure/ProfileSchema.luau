@@ -2,24 +2,49 @@
 -- Persistent profile schema, defaults, migration and sanitation. Pure.
 local ProfileSchema = {}
 
-ProfileSchema.VERSION = 3
+-- Kept in step with Config/Perks.Defaults and Config/Killstreaks.Defaults (checked by the specs);
+-- copied here so the schema stays free of requires.
+local DEFAULT_PERKS = { "Fleetfoot", "Quickhands", "SecondWind" }
+local DEFAULT_STREAKS = { "ReconDrone", "MortarBarrage" }
+ProfileSchema.DEFAULT_PERKS = DEFAULT_PERKS
+ProfileSchema.DEFAULT_STREAKS = DEFAULT_STREAKS
 
-export type WeaponProgress = { level: number, xp: number, kills: number }
+ProfileSchema.VERSION = 4
+
+export type WeaponProgress = { level: number, xp: number, kills: number, headshots: number }
 export type Loadout = {
 	name: string,
 	primary: string,
 	secondary: string,
 	primaryAttachments: { [string]: string }, -- attachment slot -> attachment id
 	secondaryAttachments: { [string]: string },
+	perks: { string }, -- one id per tier (1..3); validity/unlocks are checked by PerkRules on use
+	streaks: { string }, -- up to three killstreak ids; checked by StreakRules on use
 }
+export type ChallengeEntry = { id: string, progress: number, done: boolean }
+export type Equipped = { title: string, emblem: string?, camos: { [string]: string } }
 export type Profile = {
 	version: number,
 	account: { level: number, xp: number, prestige: number },
 	weapons: { [string]: WeaponProgress },
-	stats: { kills: number, deaths: number, matches: number, wins: number, headshots: number },
+	stats: {
+		kills: number,
+		deaths: number,
+		matches: number,
+		wins: number,
+		headshots: number,
+		assists: number,
+		captures: number,
+		plants: number,
+		defuses: number,
+		tags: number, -- Kill Confirmed tags collected (confirms and denies)
+		dailies: number, -- daily challenges completed
+	},
 	loadouts: { Loadout },
 	selectedLoadout: number,
-	inventory: { [string]: number }, -- cosmetics (Phase 5)
+	challenges: { day: number, daily: { ChallengeEntry } },
+	equipped: Equipped,
+	inventory: { [string]: number }, -- "<Kind>:<id>" -> count, for items not earned by play (Phase 6)
 	processedReceipts: { [string]: number }, -- purchaseId -> unix time (Phase 6)
 	createdAt: number,
 	lastSeen: number,
@@ -28,15 +53,25 @@ export type Profile = {
 function ProfileSchema.default(now: number, loadoutSlots: number): Profile
 	local loadouts = {}
 	for i = 1, loadoutSlots do
-		loadouts[i] = { name = "Loadout " .. i, primary = "VK7", secondary = "P12", primaryAttachments = {}, secondaryAttachments = {} }
+		loadouts[i] = {
+			name = "Loadout " .. i,
+			primary = "VK7",
+			secondary = "P12",
+			primaryAttachments = {},
+			secondaryAttachments = {},
+			perks = table.clone(DEFAULT_PERKS),
+			streaks = table.clone(DEFAULT_STREAKS),
+		}
 	end
 	return {
 		version = ProfileSchema.VERSION,
 		account = { level = 1, xp = 0, prestige = 0 },
 		weapons = {},
-		stats = { kills = 0, deaths = 0, matches = 0, wins = 0, headshots = 0 },
+		stats = { kills = 0, deaths = 0, matches = 0, wins = 0, headshots = 0, assists = 0, captures = 0, plants = 0, defuses = 0, tags = 0, dailies = 0 },
 		loadouts = loadouts,
 		selectedLoadout = 1,
+		challenges = { day = 0, daily = {} },
+		equipped = { title = "Recruit", emblem = nil, camos = {} },
 		inventory = {},
 		processedReceipts = {},
 		createdAt = now,
@@ -75,6 +110,20 @@ local MIGRATIONS: { [number]: (any) -> any } = {
 		end
 		return old
 	end,
+	-- v4 (Phase 5) added perks and killstreaks to loadouts, per-weapon headshots, more lifetime
+	-- stats, daily challenges and equipped cosmetics. Missing fields are filled by `migrate`.
+	[3] = function(old)
+		old.version = 4
+		if type(old.loadouts) == "table" then
+			for _, l in old.loadouts do
+				if type(l) == "table" then
+					l.perks = table.clone(DEFAULT_PERKS)
+					l.streaks = table.clone(DEFAULT_STREAKS)
+				end
+			end
+		end
+		return old
+	end,
 }
 
 -- Shape-only check of an attachment selection: at most five string -> string entries. Whether the
@@ -97,6 +146,22 @@ local function attachmentMap(v: any): { [string]: string }
 	return out
 end
 ProfileSchema.attachmentMap = attachmentMap
+
+-- Shape-only check of a short list of ids (perks, streaks): strings of sane length, in order.
+local function stringList(v: any, max: number): { string }?
+	if type(v) ~= "table" then
+		return nil
+	end
+	local out = {}
+	for i = 1, max do
+		local id = v[i]
+		if type(id) ~= "string" or #id > 32 then
+			break
+		end
+		out[i] = id
+	end
+	return out
+end
 
 local function num(v: any, default: number, min: number?, max: number?): number
 	if type(v) ~= "number" or v ~= v then
@@ -134,7 +199,7 @@ function ProfileSchema.migrate(data: any, now: number, loadoutSlots: number, val
 	if type(data.weapons) == "table" then
 		for id, w in data.weapons do
 			if type(id) == "string" and type(w) == "table" then
-				d.weapons[id] = { level = num(w.level, 1, 1, 30), xp = num(w.xp, 0, 0), kills = num(w.kills, 0, 0) }
+				d.weapons[id] = { level = num(w.level, 1, 1, 30), xp = num(w.xp, 0, 0), kills = num(w.kills, 0, 0), headshots = num(w.headshots, 0, 0) }
 			end
 		end
 	end
@@ -156,11 +221,38 @@ function ProfileSchema.migrate(data: any, now: number, loadoutSlots: number, val
 					-- a changed weapon invalidates its attachments
 					primaryAttachments = if primary == l.primary then attachmentMap(l.primaryAttachments) else {},
 					secondaryAttachments = if secondary == l.secondary then attachmentMap(l.secondaryAttachments) else {},
+					perks = stringList(l.perks, 3) or d.loadouts[i].perks,
+					streaks = stringList(l.streaks, 3) or d.loadouts[i].streaks,
 				}
 			end
 		end
 	end
 	d.selectedLoadout = math.floor(num(data.selectedLoadout, 1, 1, loadoutSlots))
+	local ch = data.challenges
+	if type(ch) == "table" and type(ch.daily) == "table" then
+		local daily = {}
+		for i = 1, 5 do
+			local e = ch.daily[i]
+			if type(e) ~= "table" or type(e.id) ~= "string" or #e.id > 32 then
+				break
+			end
+			daily[i] = { id = e.id, progress = num(e.progress, 0, 0), done = e.done == true }
+		end
+		d.challenges = { day = math.floor(num(ch.day, 0, 0)), daily = daily }
+	end
+	local eq = data.equipped
+	if type(eq) == "table" then
+		-- shape only; ownership is re-checked by CosmeticRules.sanitizeEquipped on use
+		d.equipped.title = if type(eq.title) == "string" and #eq.title <= 32 then eq.title else d.equipped.title
+		d.equipped.emblem = if type(eq.emblem) == "string" and #eq.emblem <= 32 then eq.emblem else nil
+		if type(eq.camos) == "table" then
+			for weaponId, camoId in eq.camos do
+				if type(weaponId) == "string" and type(camoId) == "string" and #weaponId <= 32 and #camoId <= 32 then
+					d.equipped.camos[weaponId] = camoId
+				end
+			end
+		end
+	end
 	if type(data.inventory) == "table" then
 		d.inventory = data.inventory
 	end
