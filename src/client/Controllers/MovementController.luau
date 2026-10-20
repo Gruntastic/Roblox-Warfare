@@ -59,7 +59,7 @@ local function update(dt: number)
 	end
 	humanoid.JumpHeight = if crouched then 0 else 4.2
 
-	local def = ClientState.equippedWeaponId and Weapons[ClientState.equippedWeaponId]
+	local def = ClientState.equippedStats or (ClientState.equippedWeaponId and Weapons[ClientState.equippedWeaponId])
 	local weaponMult = if def then def.moveSpeedMultiplier else 1
 	local adsMult = if def and ClientState.ads then def.adsMoveSpeedMultiplier else 1
 

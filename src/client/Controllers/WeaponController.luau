@@ -2,6 +2,7 @@
 -- First-person weapon handling: viewmodel, input, ADS, recoil, spread, prediction and effects.
 -- The client only reports intent (Fire/Reload/Equip/Melee); the server validates everything.
 local ContextActionService = game:GetService("ContextActionService")
+local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -10,6 +11,9 @@ local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local Weapons = require(Shared.Config.Weapons)
+local Attachments = require(Shared.Config.Attachments)
+local WeaponStats = require(Shared.Pure.WeaponStats)
+local Pellets = require(Shared.Pure.Pellets)
 local WeaponModel = require(Shared.WeaponModel)
 local ClientState = require(script.Parent.Parent.ClientState)
 local Effects = require(script.Parent.Effects)
@@ -22,10 +26,10 @@ local SPRINT_OFFSET = CFrame.new(0.55, -1.15, -1.25) * CFrame.Angles(math.rad(-1
 type Slot = "Primary" | "Secondary"
 type Equipped = {
 	slot: Slot,
-	def: any,
+	def: WeaponStats.Effective, -- attachments applied; the server holds the authoritative copy
 	viewmodel: Model,
 	muzzle: Attachment,
-	sightHeight: number,
+	sight: Vector3, -- ADS eye point relative to the grip origin
 }
 
 local WeaponController = {}
@@ -44,6 +48,7 @@ local adsHeld = false
 local adsAlpha = 0
 local sprintAlpha = 0
 local shotId = 0
+local burstRemaining = 0 -- rounds left in the current burst (Burst weapons)
 local recoilPending = Vector2.zero -- degrees still to apply (pitch, yaw)
 local recoilRecover = 0 -- degrees of pitch to recover
 local kick = 0 -- viewmodel kick spring
@@ -58,15 +63,6 @@ raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local function camera(): Camera
 	return workspace.CurrentCamera
-end
-
-local function sightHeightOf(def: any): number
-	for _, part in def.model do
-		if part.name == "RearSight" then
-			return part.offset.Position.Y + part.size.Y / 2
-		end
-	end
-	return 0.3
 end
 
 local function buildArms(model: Model, grip: BasePart)
@@ -98,12 +94,12 @@ local function buildArms(model: Model, grip: BasePart)
 	end
 end
 
-local function makeViewmodel(slot: Slot, weaponId: string): Equipped?
+local function makeViewmodel(slot: Slot, weaponId: string, selection: { [string]: string }): Equipped?
 	local def = Weapons[weaponId]
 	if not def then
 		return nil
 	end
-	local model = WeaponModel.build(def, { castShadow = false })
+	local model = WeaponModel.build(def, { castShadow = false, attachments = selection })
 	model.Name = "Viewmodel_" .. slot
 	local grip = model.PrimaryPart :: BasePart
 	grip.Anchored = true
@@ -114,7 +110,9 @@ local function makeViewmodel(slot: Slot, weaponId: string): Equipped?
 		end
 	end
 	local muzzle = grip:FindFirstChild("Muzzle") :: Attachment
-	return { slot = slot, def = def, viewmodel = model, muzzle = muzzle, sightHeight = sightHeightOf(def) }
+	local sight = grip:FindFirstChild("Sight") :: Attachment
+	local stats = WeaponStats.resolve(def, selection, Attachments)
+	return { slot = slot, def = stats, viewmodel = model, muzzle = muzzle, sight = sight.Position }
 end
 
 local function clearViewmodels()
@@ -124,6 +122,7 @@ local function clearViewmodels()
 	table.clear(viewmodels)
 	current = nil
 	ClientState.equippedWeaponId = nil
+	ClientState.equippedStats = nil
 end
 
 local function setAds(on: boolean)
@@ -146,8 +145,10 @@ local function equip(slot: Slot, notifyServer: boolean)
 	target.viewmodel.Parent = camera()
 	reloadingUntil = 0
 	equipUntil = os.clock() + target.def.equipTime
+	burstRemaining = 0
 	ClientState.equippedSlot = slot
 	ClientState.equippedWeaponId = target.def.id
+	ClientState.equippedStats = target.def
 	ClientState.WeaponChanged:Fire(slot, target.def.id)
 	if notifyServer then
 		Net.event("Equip"):FireServer(slot)
@@ -184,24 +185,31 @@ local function currentSpread(def: any): number
 	return base
 end
 
-local function fireOnce()
+local function fireOnce(): boolean
 	local cur = current
 	local ms = ClientState.matchState
 	-- The server rejects shots outside Playing; don't fake them locally (no flash, no mag drift).
 	if not cur or not canAct() or not ms or ms.phase ~= "Playing" then
-		return
+		return false
 	end
 	local def = cur.def
 	local now = os.clock()
 	if now < nextFireAt or now < equipUntil or now < reloadingUntil or ClientState.sprinting then
-		return
+		return false
 	end
 	local mag = localMag[cur.slot] or 0
 	if mag <= 0 then
+		burstRemaining = 0
 		startReload()
-		return
+		return false
 	end
 	nextFireAt = now + 60 / def.rpm
+	if def.burst then
+		burstRemaining = math.max(burstRemaining - 1, 0)
+		if burstRemaining == 0 then
+			nextFireAt += def.burst.delay
+		end
+	end
 	localMag[cur.slot] = mag - 1
 	shotId += 1
 
@@ -221,13 +229,19 @@ local function fireOnce()
 		table.insert(ignore, character)
 	end
 	raycastParams.FilterDescendantsInstances = ignore
-	local result = workspace:Raycast(origin, direction * def.damage.maxRange, raycastParams)
-	local hitPos = if result then result.Position else origin + direction * def.damage.maxRange
-	Effects.tracer(cur.muzzle.WorldPosition, hitPos)
-	if result and not (result.Instance:FindFirstAncestorOfClass("Model") and (result.Instance:FindFirstAncestorOfClass("Model") :: Model):FindFirstChildOfClass("Humanoid")) then
-		Effects.impact(result.Position, result.Normal)
+	local pelletCount = def.pellets or 1
+	local dirs: { Vector3 } = if pelletCount > 1 then Pellets.directions(CFrame.lookAt(origin, origin + direction), pelletCount, def.pelletSpread or 5) else { direction }
+	for _, d in ipairs(dirs) do
+		local result = workspace:Raycast(origin, d * def.damage.maxRange, raycastParams)
+		local hitPos = if result then result.Position else origin + d * def.damage.maxRange
+		Effects.tracer(cur.muzzle.WorldPosition, hitPos)
+		if result and not (result.Instance:FindFirstAncestorOfClass("Model") and (result.Instance:FindFirstAncestorOfClass("Model") :: Model):FindFirstChildOfClass("Humanoid")) then
+			Effects.impact(result.Position, result.Normal)
+		end
 	end
-	Effects.muzzleFlash(cur.muzzle)
+	if not def.suppressed then
+		Effects.muzzleFlash(cur.muzzle)
+	end
 
 	local adsMult = 1 + (def.recoil.adsMultiplier - 1) * adsAlpha
 	recoilPending += Vector2.new(def.recoil.vertical * adsMult, rng:NextNumber(-1, 1) * def.recoil.horizontal * adsMult)
@@ -236,6 +250,7 @@ local function fireOnce()
 	if localMag[cur.slot] == 0 then
 		task.delay(0.15, startReload)
 	end
+	return true
 end
 
 local function melee()
@@ -245,6 +260,23 @@ local function melee()
 	lastMeleeAt = os.clock()
 	meleeAnimUntil = lastMeleeAt + 0.35
 	Net.event("Melee"):FireServer()
+end
+
+-- Attachment selections arrive as JSON character attributes set by the server.
+local function decodeSelection(value: any): { [string]: string }
+	if type(value) ~= "string" then
+		return {}
+	end
+	local ok, decoded = pcall(HttpService.JSONDecode, HttpService, value)
+	local out = {}
+	if ok and type(decoded) == "table" then
+		for slot, id in decoded do
+			if type(slot) == "string" and type(id) == "string" then
+				out[slot] = id
+			end
+		end
+	end
+	return out
 end
 
 local function onCharacterReady(char: Model)
@@ -262,10 +294,10 @@ local function onCharacterReady(char: Model)
 		return
 	end
 	if primary then
-		viewmodels.Primary = makeViewmodel("Primary", primary) :: Equipped
+		viewmodels.Primary = makeViewmodel("Primary", primary, decodeSelection(char:GetAttribute("PrimaryAttachments"))) :: Equipped
 	end
 	if secondary then
-		viewmodels.Secondary = makeViewmodel("Secondary", secondary) :: Equipped
+		viewmodels.Secondary = makeViewmodel("Secondary", secondary, decodeSelection(char:GetAttribute("SecondaryAttachments"))) :: Equipped
 	end
 	for slot, e in viewmodels do
 		local ammo = ClientState.ammo[slot]
@@ -288,12 +320,21 @@ local function render(dt: number)
 	local def = cur.def
 	local now = os.clock()
 
-	-- Automatic fire
-	if triggerHeld and canAct() then
+	-- Trigger: Auto fires while held; Semi once per press; Burst queues `burst.count` rounds per press.
+	if burstRemaining > 0 then
+		if canAct() then
+			fireOnce()
+		else
+			burstRemaining = 0
+		end
+	elseif triggerHeld and canAct() then
 		if def.fireMode == "Auto" then
 			fireOnce()
 		elseif not semiLatch then
 			semiLatch = true
+			if def.burst then
+				burstRemaining = def.burst.count
+			end
 			fireOnce()
 		end
 	end
@@ -338,7 +379,7 @@ local function render(dt: number)
 	swayY += (math.clamp(-mouseDelta.Y * 0.004, -0.08, 0.08) - swayY) * math.min(1, dt * 8)
 	local sway = CFrame.Angles(swayY * (1 - adsAlpha * 0.8), swayX * (1 - adsAlpha * 0.8), 0)
 
-	local adsOffset = CFrame.new(0, -cur.sightHeight, -1.15)
+	local adsOffset = CFrame.new(-cur.sight.X, -cur.sight.Y, -1.15)
 	local base = HIP_OFFSET:Lerp(adsOffset, adsAlpha):Lerp(SPRINT_OFFSET, sprintAlpha * (1 - adsAlpha))
 	local kickCF = CFrame.new(0, 0, kick * 0.06) * CFrame.Angles(math.rad(kick * 1.6), 0, 0)
 
@@ -361,6 +402,12 @@ local function render(dt: number)
 	end
 
 	cur.viewmodel:PivotTo(cam.CFrame * base * bob * sway * kickCF * reloadCF * equipCF * meleeCF)
+	-- Magnified scopes: the HUD draws the scope overlay; hide the gun once mostly aimed in.
+	local scopedIn = def.scoped and adsAlpha > 0.85
+	local wantParent = if scopedIn then nil else cam
+	if cur.viewmodel.Parent ~= wantParent then
+		cur.viewmodel.Parent = wantParent
+	end
 
 	-- Hide our own third-person weapon in first person.
 	local worldWeapon = character and character:FindFirstChild("WorldWeapon")

@@ -1,22 +1,42 @@
 --!strict
 -- Lobby / pre-deploy screen: title, match info + phase timer, operators by team, map vote,
--- loadout slots + editor (with unlock gating and weapon levels), account rank + XP bar,
--- DataStore-offline warning and the DEPLOY button for late joiners / respawn fallback.
+-- loadout slots + editor (weapon picker grouped by class, unlock gating, weapon levels, Gunsmith
+-- entry points for attachments), account rank + XP bar, DataStore-offline warning and the DEPLOY
+-- button for late joiners / respawn fallback.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Theme = require(script.Parent.Theme)
+local Gunsmith = require(script.Parent.Gunsmith)
 local ClientState = require(script.Parent.Parent.ClientState)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local Types = require(Shared.Types)
+local WeaponsConfig = require(Shared.Config.Weapons)
+local AttachmentsConfig = require(Shared.Config.Attachments)
 
 local Lobby = {}
 
 local C = Theme.Colors
 local localPlayer = Players.LocalPlayer
 
-type WeaponDef = typeof(Theme.Weapons.VK7)
+type WeaponDef = WeaponsConfig.WeaponDef
+type Selection = { [string]: string } -- attachment slot -> attachment id
+type Draft = { primary: string, secondary: string, primaryAttachments: Selection, secondaryAttachments: Selection }
+type ClassGroup = { class: string, defs: { WeaponDef } }
+
+local CLASS_ORDER = { "AssaultRifle", "SMG", "LMG", "Marksman", "Sniper", "Shotgun", "Pistol", "MachinePistol" }
+local CLASS_TITLES: { [string]: string } = {
+	AssaultRifle = "ASSAULT RIFLES",
+	SMG = "SUBMACHINE GUNS",
+	LMG = "LIGHT MACHINE GUNS",
+	Marksman = "MARKSMAN RIFLES",
+	Sniper = "SNIPER RIFLES",
+	Shotgun = "SHOTGUNS",
+	Pistol = "PISTOLS",
+	MachinePistol = "MACHINE PISTOLS",
+}
+local SAVE_TIMEOUT = 6 -- seconds without a matching ProfileSync before a save counts as failed
 
 -- state
 local gui: ScreenGui
@@ -26,8 +46,10 @@ local lastDeployed = false
 local shown = false
 local diedAt: number? = nil
 local editIndex: number? = nil
-local draft: { primary: string, secondary: string }? = nil
+local draft: Draft? = nil
 local myVote: string? = nil
+local savePending = false
+local saveToken = 0
 
 -- widgets
 local rankNumber: TextLabel
@@ -45,8 +67,8 @@ local voteButtons: { [string]: TextButton } = {}
 local slotList: Frame
 local editorTitle: TextLabel
 local editorBody: ScrollingFrame
-local primaryGrid: Frame
-local secondaryGrid: Frame
+type SummaryRow = { name: TextLabel, attachments: TextLabel, button: TextButton }
+local summaryRows: { [string]: SummaryRow } = {}
 local saveButton: TextButton
 local saveStatus: TextLabel
 local deployButton: TextButton
@@ -76,20 +98,111 @@ local function fire(remote: string, ...: any)
 	end)
 end
 
-local function weaponsForSlot(slot: string): { WeaponDef }
-	local list: { WeaponDef } = {}
-	for _, def in Theme.Weapons do
+-- Defensive copy: older saves may lack attachment maps, or hold junk.
+local function copySelection(t: any): Selection
+	local out: Selection = {}
+	if type(t) == "table" then
+		for k, v in t do
+			if type(k) == "string" and type(v) == "string" then
+				out[k] = v
+			end
+		end
+	end
+	return out
+end
+
+local function sameSelection(a: Selection, b: Selection): boolean
+	for k, v in a do
+		if b[k] ~= v then
+			return false
+		end
+	end
+	for k, v in b do
+		if a[k] ~= v then
+			return false
+		end
+	end
+	return true
+end
+
+local function countSelection(t: any): number
+	local n = 0
+	if type(t) == "table" then
+		for _, v in t do
+			if type(v) == "string" then
+				n += 1
+			end
+		end
+	end
+	return n
+end
+
+local function draftFrom(lo: Types.Loadout): Draft
+	return {
+		primary = lo.primary,
+		secondary = lo.secondary,
+		primaryAttachments = copySelection(lo.primaryAttachments),
+		secondaryAttachments = copySelection(lo.secondaryAttachments),
+	}
+end
+
+local function matchesLoadout(d: Draft, lo: Types.Loadout): boolean
+	return d.primary == lo.primary
+		and d.secondary == lo.secondary
+		and sameSelection(d.primaryAttachments, copySelection(lo.primaryAttachments))
+		and sameSelection(d.secondaryAttachments, copySelection(lo.secondaryAttachments))
+end
+
+-- " +3" when attachments are equipped, "" otherwise.
+local function attachmentSuffix(t: any): string
+	local n = countSelection(t)
+	return if n > 0 then " +" .. tostring(n) else ""
+end
+
+local groupCache: { [string]: { ClassGroup } } = {}
+
+-- Weapons of one loadout slot grouped by class (fixed class order, unknown classes last), each
+-- group sorted by unlockLevel then name. Config is static, so this is computed once per slot.
+local function groupedWeapons(slot: string): { ClassGroup }
+	local cached = groupCache[slot]
+	if cached then
+		return cached
+	end
+	local byClass: { [string]: { WeaponDef } } = {}
+	for _, def in WeaponsConfig do
 		if def.slot == slot then
+			local list = byClass[def.class]
+			if not list then
+				list = {}
+				byClass[def.class] = list
+			end
 			table.insert(list, def)
 		end
 	end
-	table.sort(list, function(a, b)
-		if a.unlockLevel ~= b.unlockLevel then
-			return a.unlockLevel < b.unlockLevel
+	local classes: { string } = {}
+	for class in byClass do
+		table.insert(classes, class)
+	end
+	table.sort(classes, function(a, b)
+		local ia, ib = table.find(CLASS_ORDER, a) or math.huge, table.find(CLASS_ORDER, b) or math.huge
+		if ia ~= ib then
+			return ia < ib
 		end
-		return a.displayName < b.displayName
+		return a < b
 	end)
-	return list
+	local groups: { ClassGroup } = {}
+	for _, class in classes do
+		local defs = byClass[class]
+		table.sort(defs, function(a, b)
+			if a.unlockLevel ~= b.unlockLevel then
+				return a.unlockLevel < b.unlockLevel
+			end
+			return a.displayName < b.displayName
+		end)
+		table.insert(groups, { class = class, defs = defs })
+	end
+	groupCache[slot] = groups
+	return groups
 end
 
 local function isUnlocked(profile: Types.ProfileSummary, def: WeaponDef): boolean
@@ -154,21 +267,62 @@ end
 
 local function isDirty(): boolean
 	local lo = currentLoadout()
-	return draft ~= nil and lo ~= nil and (draft.primary ~= lo.primary or draft.secondary ~= lo.secondary)
+	return draft ~= nil and lo ~= nil and not matchesLoadout(draft, lo)
+end
+
+local function setSaveStatus(text: string, color: Color3)
+	saveStatus.Text = text
+	saveStatus.TextColor3 = color
 end
 
 local function refreshSave()
 	local dirty = isDirty()
-	saveButton.Active = dirty
+	local canSave = dirty and not savePending
+	saveButton.Active = canSave
 	saveButton.AutoButtonColor = false
-	Theme.setButtonColor(saveButton, if dirty then C.Accent else C.Locked)
-	saveButton.TextColor3 = if dirty then C.OnAccent else C.TextMuted
-	if dirty then
-		saveStatus.Text = "UNSAVED CHANGES"
-		saveStatus.TextColor3 = C.Accent
-	elseif saveStatus.Text == "UNSAVED CHANGES" then
-		saveStatus.Text = ""
+	Theme.setButtonColor(saveButton, if canSave then C.Accent else C.Locked)
+	saveButton.TextColor3 = if canSave then C.OnAccent else C.TextMuted
+	if savePending then
+		setSaveStatus("SAVING...", C.TextDim)
+	elseif dirty then
+		if saveStatus.Text == "" or saveStatus.Text == "SAVED" then
+			setSaveStatus("UNSAVED CHANGES", C.Accent)
+		end
+	elseif saveStatus.Text == "UNSAVED CHANGES" or saveStatus.Text == "SAVING..." then
+		setSaveStatus("", C.TextDim)
 	end
+end
+
+-- Sends the draft. The server validates everything and answers with ProfileSync (success) or a
+-- Notify warning (rejected); a silent drop (rate limit) shows as failed after SAVE_TIMEOUT.
+local function saveDraft()
+	local d = draft
+	local index = editIndex
+	if not d or not index or not isDirty() or savePending then
+		return
+	end
+	fire("SetLoadout", index, {
+		primary = d.primary,
+		secondary = d.secondary,
+		primaryAttachments = copySelection(d.primaryAttachments),
+		secondaryAttachments = copySelection(d.secondaryAttachments),
+	})
+	savePending = true
+	saveToken += 1
+	local token = saveToken
+	refreshSave()
+	task.delay(SAVE_TIMEOUT, function()
+		if savePending and saveToken == token then
+			savePending = false
+			setSaveStatus("SAVE FAILED - TRY AGAIN", C.Danger)
+			refreshSave()
+		end
+	end)
+end
+
+local function cancelPendingSave()
+	savePending = false
+	saveToken += 1
 end
 
 local function rebuildSlots()
@@ -206,7 +360,11 @@ local function rebuildSlots()
 			Parent = button,
 		})
 		Theme.label({
-			Text = Theme.weaponName(lo.primary) .. "  /  " .. Theme.weaponName(lo.secondary),
+			Text = Theme.weaponName(lo.primary)
+				.. attachmentSuffix(lo.primaryAttachments)
+				.. "  /  "
+				.. Theme.weaponName(lo.secondary)
+				.. attachmentSuffix(lo.secondaryAttachments),
 			Font = Theme.Fonts.Regular,
 			TextSize = 14,
 			TextColor3 = C.TextDim,
@@ -230,8 +388,10 @@ local function rebuildSlots()
 		button.Activated:Connect(function()
 			if editIndex ~= i then
 				editIndex = i
-				draft = { primary = lo.primary, secondary = lo.secondary }
-				saveStatus.Text = ""
+				draft = draftFrom(lo)
+				cancelPendingSave()
+				setSaveStatus("", C.TextDim)
+				Gunsmith.close()
 			end
 			if profile.selectedLoadout ~= i then
 				fire("SelectLoadout", i)
@@ -239,6 +399,69 @@ local function rebuildSlots()
 			rebuildSlots()
 			rebuildEditor()
 		end)
+	end
+end
+
+-- Draft weapon + attachments rows above the picker (cheap: no card rebuild).
+local function refreshSummary()
+	for _, slot in { "Primary", "Secondary" } do
+		local row = summaryRows[slot]
+		if row then
+			local id = if draft then (if slot == "Primary" then draft.primary else draft.secondary) else nil
+			local sel = if draft then (if slot == "Primary" then draft.primaryAttachments else draft.secondaryAttachments) else nil
+			local def = if id then WeaponsConfig[id] else nil
+			row.name.Text = if id then string.upper(Theme.weaponName(id)) .. attachmentSuffix(sel) else "-"
+			local names = {}
+			if def and sel then
+				for _, attSlot in def.attachmentSlots do
+					local att = AttachmentsConfig[sel[attSlot]]
+					if att then
+						table.insert(names, att.displayName)
+					end
+				end
+			end
+			row.attachments.Text = if #names > 0 then table.concat(names, "  ·  ") else "NO ATTACHMENTS EQUIPPED"
+			local usable = def ~= nil and #def.attachmentSlots > 0 and ClientState.profile ~= nil
+			row.button.Active = usable
+			row.button.Text = if def ~= nil and #def.attachmentSlots == 0 then "NO SLOTS" else "GUNSMITH"
+			row.button.TextColor3 = if usable then C.Text else C.TextMuted
+			row.button.BackgroundTransparency = if usable then 0.1 else 0.5
+		end
+	end
+end
+
+local function openGunsmith(slot: string)
+	local d = draft
+	local index = editIndex
+	if not d or not index then
+		return
+	end
+	local weaponId = if slot == "Primary" then d.primary else d.secondary
+	local current = if slot == "Primary" then d.primaryAttachments else d.secondaryAttachments
+	local opened = Gunsmith.open(weaponId, current, function(selection: Selection)
+		-- DONE: apply to the draft (only if it still edits the same loadout + weapon) and save.
+		if not draft and shown then
+			rebuildEditor()
+		end
+		local now = draft
+		if not now or editIndex ~= index then
+			return
+		end
+		if slot == "Primary" and now.primary == weaponId then
+			now.primaryAttachments = copySelection(selection)
+		elseif slot == "Secondary" and now.secondary == weaponId then
+			now.secondaryAttachments = copySelection(selection)
+		else
+			return
+		end
+		refreshSummary()
+		refreshSave()
+		saveDraft()
+	end, function()
+		mainFrame.Visible = true
+	end)
+	if opened then
+		mainFrame.Visible = false
 	end
 end
 
@@ -305,24 +528,79 @@ local function weaponCard(profile: Types.ProfileSummary, def: WeaponDef, slot: s
 		})
 	end
 	card.Activated:Connect(function()
-		if not unlocked or not draft then
+		local d = draft
+		if not unlocked or not d then
 			return
 		end
+		local lo = currentLoadout()
+		-- Changing a weapon clears its attachments; picking the saved weapon again restores them.
 		if slot == "Primary" then
-			draft.primary = def.id
+			if d.primary == def.id then
+				return
+			end
+			d.primary = def.id
+			d.primaryAttachments = if lo and lo.primary == def.id then copySelection(lo.primaryAttachments) else {}
 		else
-			draft.secondary = def.id
+			if d.secondary == def.id then
+				return
+			end
+			d.secondary = def.id
+			d.secondaryAttachments = if lo and lo.secondary == def.id then copySelection(lo.secondaryAttachments) else {}
 		end
 		rebuildEditor()
 	end)
 end
 
+local function pickerSection(profile: Types.ProfileSummary, slot: string, title: string, order: number): number
+	Theme.label({
+		Text = title,
+		Font = Theme.Fonts.Title,
+		TextSize = 16,
+		TextColor3 = C.Text,
+		Size = UDim2.new(1, 0, 0, 22),
+		LayoutOrder = order,
+		Parent = editorBody,
+	})
+	order += 1
+	for _, group in groupedWeapons(slot) do
+		Theme.label({
+			Text = string.format("%s  <font color=\"%s\">%d</font>", CLASS_TITLES[group.class] or string.upper(group.class), Theme.hex(C.TextMuted), #group.defs),
+			RichText = true,
+			Font = Theme.Fonts.Bold,
+			TextSize = 13,
+			TextColor3 = C.Accent,
+			Size = UDim2.new(1, 0, 0, 18),
+			LayoutOrder = order,
+			Parent = editorBody,
+		})
+		local grid: Frame = Theme.new("Frame", {
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, -6, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			LayoutOrder = order + 1,
+			Parent = editorBody,
+		}, {
+			Theme.new("UIGridLayout", {
+				CellSize = UDim2.new(0.5, -6, 0, 86),
+				CellPadding = UDim2.fromOffset(10, 10),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
+		for i, def in group.defs do
+			weaponCard(profile, def, slot, i, grid)
+		end
+		order += 2
+	end
+	return order
+end
+
 rebuildEditor = function()
-	clearChildren(primaryGrid)
-	clearChildren(secondaryGrid)
+	local scroll = editorBody.CanvasPosition
+	clearChildren(editorBody)
 	local profile = ClientState.profile
 	if not profile then
 		editorTitle.Text = "LOADING PROFILE..."
+		refreshSummary()
 		refreshSave()
 		return
 	end
@@ -333,19 +611,19 @@ rebuildEditor = function()
 	local lo = profile.loadouts[editIndex :: number]
 	if not lo then
 		editorTitle.Text = "NO LOADOUTS"
+		draft = nil
+		refreshSummary()
 		refreshSave()
 		return
 	end
 	if not draft then
-		draft = { primary = lo.primary, secondary = lo.secondary }
+		draft = draftFrom(lo)
 	end
 	editorTitle.Text = "EDIT  //  " .. string.upper(lo.name ~= "" and lo.name or ("Loadout " .. tostring(editIndex)))
-	for i, def in weaponsForSlot("Primary") do
-		weaponCard(profile, def, "Primary", i, primaryGrid)
-	end
-	for i, def in weaponsForSlot("Secondary") do
-		weaponCard(profile, def, "Secondary", i, secondaryGrid)
-	end
+	local order = pickerSection(profile, "Primary", "PRIMARY", 1)
+	pickerSection(profile, "Secondary", "SECONDARY", order + 1)
+	editorBody.CanvasPosition = scroll
+	refreshSummary()
 	refreshSave()
 end
 
@@ -571,6 +849,7 @@ local function setShown(show: boolean)
 		rebuildSlots()
 		rebuildEditor()
 	else
+		Gunsmith.close() -- e.g. the match deploys while the Gunsmith is open
 		gui.Enabled = false
 	end
 end
@@ -714,42 +993,73 @@ local function buildLoadoutColumns(parent: Instance)
 	local editor = Theme.panel({ Name = "Editor", Size = UDim2.new(0.43, -14, 1, 0), LayoutOrder = 2, Parent = parent })
 	Theme.padding(14).Parent = editor
 	editorTitle = sectionTitle("LOADING PROFILE...", editor)
+
+	-- draft summary: weapon + equipped attachments + GUNSMITH entry, one row per weapon slot
+	local SUMMARY_ROW = 58
+	for i, slot in { "Primary", "Secondary" } do
+		local row: Frame = Theme.new("Frame", {
+			Name = slot .. "Summary",
+			BackgroundColor3 = C.PanelLight,
+			BackgroundTransparency = 0.35,
+			BorderSizePixel = 0,
+			Position = UDim2.fromOffset(0, 30 + (i - 1) * (SUMMARY_ROW + 6)),
+			Size = UDim2.new(1, 0, 0, SUMMARY_ROW),
+			Parent = editor,
+		}, { Theme.corner(6) })
+		Theme.label({
+			Text = string.upper(slot),
+			Font = Theme.Fonts.Bold,
+			TextSize = 11,
+			TextColor3 = C.TextMuted,
+			Position = UDim2.fromOffset(12, 6),
+			Size = UDim2.fromOffset(120, 14),
+			Parent = row,
+		})
+		local name = Theme.label({
+			Font = Theme.Fonts.Bold,
+			TextSize = 17,
+			Position = UDim2.fromOffset(12, 18),
+			Size = UDim2.new(1, -190, 0, 20),
+			Parent = row,
+		})
+		local attachments = Theme.label({
+			Font = Theme.Fonts.Regular,
+			TextSize = 12,
+			TextColor3 = C.TextDim,
+			Position = UDim2.fromOffset(12, 38),
+			Size = UDim2.new(1, -190, 0, 14),
+			Parent = row,
+		})
+		local button = Theme.button({
+			Name = "Gunsmith",
+			Text = "GUNSMITH",
+			TextSize = 16,
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -7, 0.5, 0),
+			Size = UDim2.fromOffset(160, 46),
+			Parent = row,
+		})
+		Theme.stroke(C.Accent, 1, 0.35).Parent = button
+		button.Activated:Connect(function()
+			if button.Active then
+				openGunsmith(slot)
+			end
+		end)
+		summaryRows[slot] = { name = name, attachments = attachments, button = button }
+	end
+	local bodyTop = 30 + 2 * (SUMMARY_ROW + 6) + 6
+
 	editorBody = Theme.new("ScrollingFrame", {
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		Position = UDim2.fromOffset(0, 30),
-		Size = UDim2.new(1, 0, 1, -30 - 62),
+		Position = UDim2.fromOffset(0, bodyTop),
+		Size = UDim2.new(1, 0, 1, -bodyTop - 62),
 		CanvasSize = UDim2.new(),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		ScrollBarThickness = 3,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
 		Parent = editor,
-	}, { Theme.list(Enum.FillDirection.Vertical, 10) })
-	local function grid(title: string, order: number): Frame
-		Theme.label({
-			Text = title,
-			Font = Theme.Fonts.Bold,
-			TextSize = 13,
-			TextColor3 = C.TextMuted,
-			Size = UDim2.new(1, 0, 0, 18),
-			LayoutOrder = order,
-			Parent = editorBody,
-		})
-		return Theme.new("Frame", {
-			BackgroundTransparency = 1,
-			Size = UDim2.new(1, -6, 0, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			LayoutOrder = order + 1,
-			Parent = editorBody,
-		}, {
-			Theme.new("UIGridLayout", {
-				CellSize = UDim2.new(0.5, -6, 0, 86),
-				CellPadding = UDim2.fromOffset(10, 10),
-				SortOrder = Enum.SortOrder.LayoutOrder,
-			}),
-		})
-	end
-	primaryGrid = grid("PRIMARY", 1)
-	secondaryGrid = grid("SECONDARY", 3)
+	}, { Theme.list(Enum.FillDirection.Vertical, 8) })
 
 	local saveRow: Frame = Theme.new("Frame", {
 		BackgroundTransparency = 1,
@@ -773,14 +1083,7 @@ local function buildLoadoutColumns(parent: Instance)
 		Size = UDim2.new(1, -236, 1, 0),
 		Parent = saveRow,
 	})
-	saveButton.Activated:Connect(function()
-		if not isDirty() or not editIndex or not draft then
-			return
-		end
-		fire("SetLoadout", editIndex, { primary = draft.primary, secondary = draft.secondary })
-		saveStatus.Text = "SAVING..."
-		saveStatus.TextColor3 = C.TextDim
-	end)
+	saveButton.Activated:Connect(saveDraft)
 end
 
 local function buildRightColumn(parent: Instance)
@@ -948,9 +1251,9 @@ function Lobby.init()
 	ClientState.ProfileChanged:Connect(function()
 		refreshRank()
 		local lo = currentLoadout()
-		if lo and draft and saveStatus.Text == "SAVING..." and draft.primary == lo.primary and draft.secondary == lo.secondary then
-			saveStatus.Text = "SAVED"
-			saveStatus.TextColor3 = C.Positive
+		if lo and draft and savePending and matchesLoadout(draft, lo) then
+			cancelPendingSave()
+			setSaveStatus("SAVED", C.Positive)
 		end
 		if not isDirty() then
 			draft = nil -- re-sync draft from the authoritative profile
@@ -958,6 +1261,18 @@ function Lobby.init()
 		if shown then
 			rebuildSlots()
 			rebuildEditor()
+		end
+	end)
+	ClientState.Notify:Connect(function(text: string, kind: string)
+		-- server rejections of SetLoadout arrive as warnings ("Invalid loadout", "...still locked", ...)
+		if not savePending or kind ~= "Warning" or type(text) ~= "string" then
+			return
+		end
+		local lower = string.lower(text)
+		if string.find(lower, "loadout", 1, true) or string.find(lower, "attachment", 1, true) or string.find(lower, "locked", 1, true) then
+			cancelPendingSave()
+			setSaveStatus("NOT SAVED: " .. string.upper(text), C.Danger)
+			refreshSave()
 		end
 	end)
 	ClientState.MatchStateChanged:Connect(function(ms)

@@ -38,7 +38,7 @@ Phase 2 (see `REPORT.md`); everything else is open.
 - [x] Fire rate matches the config (about 14 rounds/s for the VK-7)
 - [x] Server ammo is authoritative (HUD matches AmmoState)
 - [ ] R reloads; the HUD shows RELOADING; you cannot fire mid-reload
-- [ ] 1/2 (gamepad Y) switches weapons; the HUD weapon name updates
+- [ ] 1/2, mouse wheel or gamepad Y switches weapons; the HUD weapon name updates
 - [ ] Right mouse aims down sights; the crosshair hides
 - [ ] Shift sprints and blocks firing; C crouches
 - [ ] Speed hacking (WalkSpeed raised from the client console) is rubber-banded back

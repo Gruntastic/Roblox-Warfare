@@ -12,7 +12,7 @@ Net.Events = {
 	"Reload", -- (slot: Slot)
 	"Equip", -- (slot: Slot)
 	"Melee", -- () server picks the target in front of the character
-	"SetLoadout", -- (index: number, loadout: { primary: string, secondary: string })
+	"SetLoadout", -- (index: number, loadout: { primary: string, secondary: string, primaryAttachments: {[slot]: id}?, secondaryAttachments: {[slot]: id}? })
 	"SelectLoadout", -- (index: number)
 	"VoteMap", -- (mapId: string)
 	"RequestDeploy", -- () ask to join the running match from the lobby

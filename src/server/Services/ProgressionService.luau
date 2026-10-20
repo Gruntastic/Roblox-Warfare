@@ -9,6 +9,8 @@ local Types = require(Shared.Types)
 local Leveling = require(Shared.Pure.Leveling)
 local XPRules = require(Shared.Pure.XPRules)
 local Weapons = require(Shared.Config.Weapons)
+local Attachments = require(Shared.Config.Attachments)
+local WeaponStats = require(Shared.Pure.WeaponStats)
 local Progression = require(Shared.Config.Progression)
 local DataService = require(script.Parent.DataService)
 
@@ -51,6 +53,35 @@ function ProgressionService.isWeaponUnlocked(profile: any, weaponId: string): bo
 	return profile.account.level >= def.unlockLevel or profile.account.prestige > 0
 end
 
+function ProgressionService.weaponLevel(profile: any, weaponId: string): number
+	local w = profile.weapons[weaponId]
+	return if w then w.level else 1
+end
+
+-- Attachments still valid for the weapon at the player's current weapon level.
+local function attachmentsFor(profile: any, weaponId: string, selection: any): { [string]: string }
+	local def = Weapons[weaponId]
+	if not def then
+		return {}
+	end
+	return WeaponStats.sanitize(def, selection, ProgressionService.weaponLevel(profile, weaponId), Attachments)
+end
+
+-- Loadouts as the client should see them: copies, with stale attachments filtered out.
+local function loadoutsView(profile: any): { Types.Loadout }
+	local out = {}
+	for i, l in profile.loadouts do
+		out[i] = {
+			name = l.name,
+			primary = l.primary,
+			secondary = l.secondary,
+			primaryAttachments = attachmentsFor(profile, l.primary, l.primaryAttachments),
+			secondaryAttachments = attachmentsFor(profile, l.secondary, l.secondaryAttachments),
+		}
+	end
+	return out
+end
+
 function ProgressionService.summary(player: Player): Types.ProfileSummary?
 	local profile = DataService.getProfile(player)
 	if not profile then
@@ -72,7 +103,7 @@ function ProgressionService.summary(player: Player): Types.ProfileSummary?
 		account = { level = acct.level, xp = acct.xp, needed = acct.needed, prestige = profile.account.prestige },
 		weapons = weapons,
 		stats = { kills = profile.stats.kills, deaths = profile.stats.deaths, matches = profile.stats.matches, wins = profile.stats.wins },
-		loadouts = table.clone(profile.loadouts),
+		loadouts = loadoutsView(profile),
 		selectedLoadout = profile.selectedLoadout,
 		unlockedWeapons = unlocked,
 		temporary = DataService.temporary,
@@ -208,15 +239,29 @@ function ProgressionService.endMatch(player: Player, secondsPlayed: number, won:
 	return { total = l.total, breakdown = breakdown }
 end
 
-function ProgressionService.currentLoadout(player: Player): { primary: string, secondary: string }
+export type ResolvedLoadout = {
+	primary: string,
+	secondary: string,
+	primaryAttachments: { [string]: string },
+	secondaryAttachments: { [string]: string },
+}
+
+-- The loadout a player spawns with. Locked weapons fall back to the defaults, and attachments
+-- are re-validated against current weapon levels, so stored data can never grant anything unearned.
+function ProgressionService.currentLoadout(player: Player): ResolvedLoadout
 	local profile = DataService.getProfile(player)
 	if not profile then
-		return { primary = "VK7", secondary = "P12" }
+		return { primary = "VK7", secondary = "P12", primaryAttachments = {}, secondaryAttachments = {} }
 	end
 	local l = profile.loadouts[profile.selectedLoadout] or profile.loadouts[1]
-	local primary = if ProgressionService.isWeaponUnlocked(profile, l.primary) then l.primary else "VK7"
-	local secondary = if ProgressionService.isWeaponUnlocked(profile, l.secondary) then l.secondary else "P12"
-	return { primary = primary, secondary = secondary }
+	local primaryOk = ProgressionService.isWeaponUnlocked(profile, l.primary)
+	local secondaryOk = ProgressionService.isWeaponUnlocked(profile, l.secondary)
+	return {
+		primary = if primaryOk then l.primary else "VK7",
+		secondary = if secondaryOk then l.secondary else "P12",
+		primaryAttachments = if primaryOk then attachmentsFor(profile, l.primary, l.primaryAttachments) else {},
+		secondaryAttachments = if secondaryOk then attachmentsFor(profile, l.secondary, l.secondaryAttachments) else {},
+	}
 end
 
 local function rateLimited(player: Player): boolean
@@ -268,8 +313,21 @@ function ProgressionService.init()
 			Net.event("Notify"):FireClient(player, "That weapon is still locked", "Warning")
 			return
 		end
+		local pa = if loadout.primaryAttachments == nil then {} else loadout.primaryAttachments
+		local sa = if loadout.secondaryAttachments == nil then {} else loadout.secondaryAttachments
+		local okP, whyP = WeaponStats.validate(pd, pa, ProgressionService.weaponLevel(profile, primary), Attachments)
+		local okS, whyS = WeaponStats.validate(sd, sa, ProgressionService.weaponLevel(profile, secondary), Attachments)
+		if not okP or not okS then
+			local why = whyP or whyS
+			Net.event("Notify"):FireClient(player, if why == "locked" then "That attachment is still locked" else "Invalid attachments", "Warning")
+			ProgressionService.sync(player) -- let the client fall back to the stored loadout
+			return
+		end
 		local entry = profile.loadouts[index]
 		entry.primary, entry.secondary = primary, secondary
+		-- store fresh copies made of validated strings only
+		entry.primaryAttachments = WeaponStats.sanitize(pd, pa, ProgressionService.weaponLevel(profile, primary), Attachments)
+		entry.secondaryAttachments = WeaponStats.sanitize(sd, sa, ProgressionService.weaponLevel(profile, secondary), Attachments)
 		DataService.markDirty(player)
 		ProgressionService.sync(player)
 	end)

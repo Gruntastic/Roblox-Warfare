@@ -174,7 +174,9 @@ function WeaponStats.resolve(def: any, selection: Selection?, catalog: { [string
 		end
 	end
 	if magMult ~= 1 then
-		local newMag = math.max(1, math.floor(def.magSize * magMult + 0.5))
+		-- Reductions floor so a smaller-mag attachment always costs at least one round.
+		local scaled = def.magSize * magMult
+		local newMag = math.max(1, if magMult < 1 then math.min(def.magSize - 1, math.floor(scaled)) else math.floor(scaled + 0.5))
 		e.reserveAmmo = math.floor(def.reserveAmmo * newMag / def.magSize + 0.5)
 		e.magSize = newMag
 	end

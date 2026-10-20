@@ -1,6 +1,7 @@
 --!strict
 -- In-match HUD (visible while deployed): health + damage vignette, ammo, crosshair, hit markers,
--- directional damage indicators, team scores + timer and a heading compass.
+-- directional damage indicators, team scores + timer, a heading compass and the scope overlay
+-- (shown while aiming a weapon whose def has a built-in `scope`).
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
@@ -90,6 +91,18 @@ local rightStripe: Frame
 local compassInner: Frame
 local headingLabel: TextLabel
 local lastHeading = -1
+
+-- scope overlay
+local SCOPE_IN = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local SCOPE_OUT = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+local SCOPE_LENS = 0.92 -- lens diameter as a fraction of the virtual screen height
+local SCOPE_RINGS = { 0.04, 0.09, 0.15 } -- vignette ring widths as fractions of the lens diameter
+local scopeGroup: CanvasGroup
+local scopeLens: Frame
+local scopeSurround: UIStroke
+local scopeRings: { { frame: Frame, stroke: UIStroke, width: number } } = {}
+local scopeShown = false
+local scopeTween: Tween? = nil
 
 ---------------------------------------------------------------------------------------------
 -- Health + vignette
@@ -278,6 +291,71 @@ local function refreshScores()
 end
 
 ---------------------------------------------------------------------------------------------
+-- Scope overlay
+---------------------------------------------------------------------------------------------
+
+-- Sizes in virtual (canvas) pixels; recomputed on each show so resolution changes are picked up.
+local function layoutScope()
+	local scale = Theme.getScale()
+	local virtualHeight = if scale > 0 then canvas.AbsoluteSize.Y / scale else 1080
+	if virtualHeight < 100 then
+		virtualHeight = 1080
+	end
+	local d = math.floor(virtualHeight * SCOPE_LENS + 0.5)
+	scopeLens.Size = UDim2.fromOffset(d, d)
+	-- the big black stroke covers the corners between the lens circle and its bounding square;
+	-- the four Surround frames (children of the lens) cover everything beyond that square
+	scopeSurround.Thickness = math.ceil(d * 0.3)
+	for _, ring in scopeRings do
+		local w = math.max(2, math.floor(d * ring.width + 0.5))
+		ring.frame.Size = UDim2.new(1, -2 * w, 1, -2 * w)
+		ring.stroke.Thickness = w
+	end
+end
+
+local function setScope(on: boolean, instant: boolean?)
+	if on == scopeShown and not instant then
+		return
+	end
+	scopeShown = on
+	if scopeTween then
+		scopeTween:Cancel()
+		scopeTween = nil
+	end
+	if on then
+		layoutScope()
+		scopeGroup.Visible = true
+		if instant then
+			scopeGroup.GroupTransparency = 0
+		else
+			scopeTween = Theme.tween(scopeGroup, SCOPE_IN, { GroupTransparency = 0 })
+		end
+	elseif instant or not scopeGroup.Visible then
+		scopeGroup.GroupTransparency = 1
+		scopeGroup.Visible = false
+	else
+		local tween = Theme.tween(scopeGroup, SCOPE_OUT, { GroupTransparency = 1 })
+		scopeTween = tween
+		tween.Completed:Once(function(state: Enum.PlaybackState)
+			if state == Enum.PlaybackState.Completed and not scopeShown then
+				scopeGroup.Visible = false
+			end
+		end)
+	end
+end
+
+local function refreshScope()
+	local weaponId = ClientState.equippedWeaponId
+	local def = if weaponId then Theme.Weapons[weaponId] else nil
+	local want = gui.Enabled and ClientState.deployed and ClientState.ads and def ~= nil and def.scope ~= nil
+	if gui.Enabled then
+		setScope(want)
+	else
+		setScope(false, true)
+	end
+end
+
+---------------------------------------------------------------------------------------------
 -- Per-frame update (connected only while the HUD is shown; no table allocations)
 ---------------------------------------------------------------------------------------------
 
@@ -381,6 +459,7 @@ local function setShown(shown: boolean)
 		end
 		damageFlash = 0
 	end
+	refreshScope()
 end
 
 local function refreshShown()
@@ -422,6 +501,97 @@ local function buildVignette()
 		})
 		table.insert(vignette, edge)
 	end
+end
+
+local function buildScope()
+	-- ZIndex -1: drawn under every other HUD element (health, ammo, hit markers stay readable)
+	scopeGroup = Theme.new("CanvasGroup", {
+		Name = "Scope",
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = -1,
+		GroupTransparency = 1,
+		Visible = false,
+		Parent = canvas,
+	})
+	scopeLens = Theme.new("Frame", {
+		Name = "Lens",
+		BackgroundColor3 = Color3.fromRGB(12, 20, 26),
+		BackgroundTransparency = 0.93,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(994, 994),
+		Parent = scopeGroup,
+	}, { Theme.new("UICorner", { CornerRadius = UDim.new(0.5, 0) }) })
+	scopeSurround = Theme.new("UIStroke", {
+		Color = C.Black,
+		Thickness = 300,
+		Transparency = 0,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		BorderStrokePosition = Enum.BorderStrokePosition.Outer,
+		Parent = scopeLens,
+	})
+	local big = 6000
+	local surrounds = {
+		{ anchor = Vector2.new(0.5, 1), pos = UDim2.fromScale(0.5, 0), size = UDim2.fromOffset(big, big) }, -- above
+		{ anchor = Vector2.new(0.5, 0), pos = UDim2.fromScale(0.5, 1), size = UDim2.fromOffset(big, big) }, -- below
+		{ anchor = Vector2.new(1, 0.5), pos = UDim2.fromScale(0, 0.5), size = UDim2.new(0, big, 1, 0) }, -- left
+		{ anchor = Vector2.new(0, 0.5), pos = UDim2.fromScale(1, 0.5), size = UDim2.new(0, big, 1, 0) }, -- right
+	}
+	for _, spec in surrounds do
+		Theme.new("Frame", {
+			Name = "Surround",
+			BackgroundColor3 = C.Black,
+			BorderSizePixel = 0,
+			AnchorPoint = spec.anchor,
+			Position = spec.pos,
+			Size = spec.size,
+			Parent = scopeLens,
+		})
+	end
+	-- soft vignette: stacked translucent rings darken the lens towards its rim
+	for i, width in SCOPE_RINGS do
+		local ring: Frame = Theme.new("Frame", {
+			Name = "Vignette",
+			BackgroundTransparency = 1,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(1, 1),
+			ZIndex = 1,
+			Parent = scopeLens,
+		}, { Theme.new("UICorner", { CornerRadius = UDim.new(0.5, 0) }) })
+		local stroke: UIStroke = Theme.new("UIStroke", {
+			Color = C.Black,
+			Thickness = 10,
+			Transparency = 0.72 + i * 0.06,
+			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+			BorderStrokePosition = Enum.BorderStrokePosition.Outer,
+			Parent = ring,
+		})
+		table.insert(scopeRings, { frame = ring, stroke = stroke, width = width })
+	end
+	-- duplex reticle: thin full-width cross plus heavy posts towards the rim
+	local function line(anchor: Vector2, pos: UDim2, size: UDim2)
+		Theme.new("Frame", {
+			Name = "Reticle",
+			BackgroundColor3 = C.Black,
+			BackgroundTransparency = 0.05,
+			BorderSizePixel = 0,
+			AnchorPoint = anchor,
+			Position = pos,
+			Size = size,
+			ZIndex = 2,
+			Parent = scopeLens,
+		})
+	end
+	local mid = Vector2.new(0.5, 0.5)
+	line(mid, UDim2.fromScale(0.5, 0.5), UDim2.new(1, 0, 0, 2))
+	line(mid, UDim2.fromScale(0.5, 0.5), UDim2.new(0, 2, 1, 0))
+	line(Vector2.new(0, 0.5), UDim2.fromScale(0, 0.5), UDim2.new(0.34, 0, 0, 6)) -- left post
+	line(Vector2.new(1, 0.5), UDim2.fromScale(1, 0.5), UDim2.new(0.34, 0, 0, 6)) -- right post
+	line(Vector2.new(0.5, 1), UDim2.fromScale(0.5, 1), UDim2.new(0, 6, 0.34, 0)) -- bottom post
 end
 
 local function buildHealth()
@@ -780,6 +950,7 @@ function HUD.init()
 
 	gui, canvas = Theme.screen("HUD", 5)
 	gui.Enabled = false
+	buildScope()
 	buildVignette()
 	buildIndicators()
 	buildHealth()
@@ -795,7 +966,10 @@ function HUD.init()
 		bindCharacter(localPlayer.Character)
 	end
 
-	ClientState.DeployedChanged:Connect(refreshShown)
+	ClientState.DeployedChanged:Connect(function()
+		refreshShown()
+		refreshScope()
+	end)
 	ClientState.MatchStateChanged:Connect(function()
 		refreshShown()
 		if gui.Enabled then
@@ -809,6 +983,7 @@ function HUD.init()
 	end)
 	ClientState.WeaponChanged:Connect(function()
 		refreshAmmo()
+		refreshScope()
 		local scale = ammoPanel:FindFirstChildOfClass("UIScale")
 		if not scale then
 			scale = Theme.new("UIScale", { Parent = ammoPanel })
@@ -835,6 +1010,7 @@ function HUD.init()
 		if dot and dot:IsA("Frame") then
 			dot.Visible = not ads
 		end
+		refreshScope()
 	end)
 	ClientState.HitConfirm:Connect(onHit)
 	ClientState.DamageTaken:Connect(onDamage)

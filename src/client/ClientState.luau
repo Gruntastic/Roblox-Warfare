@@ -18,6 +18,7 @@ local ClientState = {
 	deployed = false, -- local character is alive in the match
 	equippedSlot = "Primary" :: Types.Slot,
 	equippedWeaponId = nil :: string?,
+	equippedStats = nil :: any, -- WeaponStats.Effective of the equipped weapon (attachments applied)
 	ads = false,
 	sprinting = false,
 

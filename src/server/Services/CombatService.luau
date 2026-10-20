@@ -2,6 +2,7 @@
 -- Server-authoritative combat: weapon state, fire-rate/ammo validation, lag-compensated
 -- hitscan against rewound hitboxes, damage, assists, regeneration and melee.
 local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
@@ -11,8 +12,11 @@ local Signal = require(Shared.Pure.Signal)
 local WeaponState = require(Shared.Pure.WeaponState)
 local Hitbox = require(Shared.Pure.Hitbox)
 local Damage = require(Shared.Pure.Damage)
+local Pellets = require(Shared.Pure.Pellets)
+local WeaponStats = require(Shared.Pure.WeaponStats)
 local WeaponModel = require(Shared.WeaponModel)
 local Weapons = require(Shared.Config.Weapons)
+local Attachments = require(Shared.Config.Attachments)
 local ModesConfig = require(Shared.Config.Modes)
 
 local Match = ModesConfig.Match
@@ -30,8 +34,16 @@ local MELEE_COOLDOWN = 0.9
 
 type Slot = "Primary" | "Secondary"
 type Damager = { amount: number, t: number, weaponId: string? }
+export type Loadout = {
+	primary: string,
+	secondary: string,
+	primaryAttachments: { [string]: string },
+	secondaryAttachments: { [string]: string },
+}
 type CombatState = {
 	weapons: { [string]: WeaponState.WeaponState },
+	stats: { [string]: WeaponStats.Effective }, -- per slot, attachments applied
+	selections: { [string]: { [string]: string } }, -- per slot attachment selection (for models)
 	equipped: Slot,
 	lastDamaged: number,
 	damagers: { [Player]: Damager },
@@ -128,7 +140,7 @@ local function sendAmmo(player: Player, slot: string)
 	end
 end
 
-local function attachWorldModel(player: Player, weaponId: string)
+local function attachWorldModel(player: Player, slot: string)
 	local s = states[player]
 	local character = s and s.character
 	if not s or not character then
@@ -139,11 +151,12 @@ local function attachWorldModel(player: Player, weaponId: string)
 		s.worldModel = nil
 	end
 	local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
-	local def = Weapons[weaponId]
-	if not torso or not def then
+	local weaponId = s.weapons[slot] and s.weapons[slot].defId
+	local def = weaponId and Weapons[weaponId]
+	if not torso or not def or not weaponId then
 		return
 	end
-	local model = WeaponModel.build(def, { castShadow = true })
+	local model = WeaponModel.build(def, { castShadow = true, attachments = s.selections[slot] })
 	model.Name = "WorldWeapon"
 	local grip = model.PrimaryPart :: BasePart
 	local weld = Instance.new("Weld")
@@ -351,7 +364,7 @@ local function onFire(player: Player, shotId: any, slot: any, origin: any, direc
 	end
 	local dir = (direction :: Vector3).Unit
 	local w = s.weapons[slot]
-	local def = Weapons[w.defId]
+	local stats = s.stats[slot]
 	local ok, reason = WeaponState.tryFire(w, now)
 	if not ok then
 		if reason ~= "rate" then
@@ -362,22 +375,43 @@ local function onFire(player: Player, shotId: any, slot: any, origin: any, direc
 	CombatService.stats.shotsAccepted += 1
 	breakProtection(player, s)
 
-	local maxDist = def.damage.maxRange
-	local world = workspace:Raycast(o, dir * maxDist, rayParams)
-	local worldDist = if world then world.Distance else maxDist
-	local target, dist, zone = traceEnemies(player, o, dir, worldDist)
-	local hitPos = if target and dist then o + dir * dist elseif world then world.Position else o + dir * maxDist
-
-	for _, other in Players:GetPlayers() do
-		if other ~= player then
-			Net.event("Tracer"):FireClient(other, player.UserId, o, hitPos)
+	local maxDist = stats.damage.maxRange
+	local pelletCount = stats.pellets or 1
+	local dirs: { Vector3 } = if pelletCount > 1 then Pellets.directions(CFrame.lookAt(o, o + dir), pelletCount, stats.pelletSpread or 5) else { dir }
+	-- Per-target totals so a shotgun blast is one damage event (one hit marker, one kill credit).
+	local totals: { [Player]: { amount: number, head: number, pellets: number } } = {}
+	local tracerEnd = o + dir * maxDist
+	for i, d in ipairs(dirs) do
+		local world = workspace:Raycast(o, d * maxDist, rayParams)
+		local worldDist = if world then world.Distance else maxDist
+		local target, dist, zone = traceEnemies(player, o, d, worldDist)
+		if i == 1 then
+			tracerEnd = if target and dist then o + d * dist elseif world then world.Position else o + d * maxDist
+		end
+		if target and dist and zone then
+			local t = totals[target]
+			if not t then
+				t = { amount = 0, head = 0, pellets = 0 }
+				totals[target] = t
+			end
+			t.amount += Damage.compute(stats, dist, zone)
+			t.pellets += 1
+			if zone == "Head" then
+				t.head += 1
+			end
 		end
 	end
 
-	if target and dist and zone then
+	-- Suppressed shots only show tracers to teammates.
+	for _, other in Players:GetPlayers() do
+		if other ~= player and (not stats.suppressed or not CombatService.rules.isEnemy(player, other)) then
+			Net.event("Tracer"):FireClient(other, player.UserId, o, tracerEnd)
+		end
+	end
+
+	for target, t in totals do
 		CombatService.stats.hits += 1
-		local amount = Damage.compute(def, dist, zone)
-		CombatService.applyDamage(target, player, amount, def.id, zone == "Head", o)
+		CombatService.applyDamage(target, player, t.amount, stats.id, t.head * 2 >= t.pellets and t.head > 0, o)
 	end
 	if w.mag == 0 then
 		sendAmmo(player, slot)
@@ -390,9 +424,9 @@ local function onReload(player: Player, slot: any)
 		return
 	end
 	local w = s.weapons[slot]
-	local def = Weapons[w.defId]
+	local stats = s.stats[slot]
 	local now = os.clock()
-	local ok = WeaponState.startReload(w, now, def.reloadTime, def.reloadEmptyTime)
+	local ok = WeaponState.startReload(w, now, stats.reloadTime, stats.reloadEmptyTime)
 	sendAmmo(player, slot)
 	if ok then
 		task.delay((w.reloadEndsAt :: number) - now + 0.02, function()
@@ -411,9 +445,9 @@ local function onEquip(player: Player, slot: any)
 	local current = s.weapons[s.equipped]
 	WeaponState.cancelReload(current)
 	local w = s.weapons[slot]
-	WeaponState.equip(w, os.clock(), Weapons[w.defId].equipTime)
+	WeaponState.equip(w, os.clock(), s.stats[slot].equipTime)
 	s.equipped = slot :: Slot
-	attachWorldModel(player, w.defId)
+	attachWorldModel(player, slot)
 	sendAmmo(player, s.equipped)
 end
 
@@ -455,17 +489,22 @@ local function onMelee(player: Player)
 end
 
 -- Called by MatchService after a character is spawned and positioned.
-function CombatService.onSpawned(player: Player, character: Model, loadout: { primary: string, secondary: string }, protection: number)
+function CombatService.onSpawned(player: Player, character: Model, loadout: Loadout, protection: number)
 	clearState(player)
 	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
 	humanoid.MaxHealth = Match.MaxHealth
 	humanoid.Health = Match.MaxHealth
 	humanoid.BreakJointsOnDeath = false
+	-- The loadout arrives validated (ProgressionService.currentLoadout); resolve attachments once.
+	local primaryStats = WeaponStats.resolve(Weapons[loadout.primary], loadout.primaryAttachments, Attachments)
+	local secondaryStats = WeaponStats.resolve(Weapons[loadout.secondary], loadout.secondaryAttachments, Attachments)
 	local s: CombatState = {
 		weapons = {
-			Primary = WeaponState.new(Weapons[loadout.primary]),
-			Secondary = WeaponState.new(Weapons[loadout.secondary]),
+			Primary = WeaponState.new(primaryStats),
+			Secondary = WeaponState.new(secondaryStats),
 		},
+		stats = { Primary = primaryStats, Secondary = secondaryStats },
+		selections = { Primary = loadout.primaryAttachments, Secondary = loadout.secondaryAttachments },
 		equipped = "Primary",
 		lastDamaged = 0,
 		damagers = {},
@@ -496,8 +535,12 @@ function CombatService.onSpawned(player: Player, character: Model, loadout: { pr
 	end))
 	character:SetAttribute("PrimaryWeapon", loadout.primary)
 	character:SetAttribute("SecondaryWeapon", loadout.secondary)
-	WeaponState.equip(s.weapons.Primary, os.clock(), Weapons[loadout.primary].equipTime)
-	attachWorldModel(player, loadout.primary)
+	-- Attachment selections for the client's viewmodel (JSON: slot -> id). Display only; the
+	-- server keeps its own resolved stats.
+	character:SetAttribute("PrimaryAttachments", HttpService:JSONEncode(loadout.primaryAttachments))
+	character:SetAttribute("SecondaryAttachments", HttpService:JSONEncode(loadout.secondaryAttachments))
+	WeaponState.equip(s.weapons.Primary, os.clock(), primaryStats.equipTime)
+	attachWorldModel(player, "Primary")
 	refreshRayFilter()
 	sendAmmo(player, "Primary")
 	sendAmmo(player, "Secondary")
