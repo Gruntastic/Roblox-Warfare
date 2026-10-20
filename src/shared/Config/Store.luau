@@ -64,7 +64,7 @@ local crates: { CrateDef } = {
 
 local premium: { PremiumBundle } = {
 	{
-		id = "FounderPack",
+		id = "3720442629",
 		name = "Founder Pack",
 		description = "Founder camo for every weapon, the Founder title and the Founder emblem.",
 		productId = 0,
