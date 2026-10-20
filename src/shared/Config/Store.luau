@@ -64,10 +64,10 @@ local crates: { CrateDef } = {
 
 local premium: { PremiumBundle } = {
 	{
-		id = "3720442629",
+		id = "FounderPack",
 		name = "Founder Pack",
 		description = "Founder camo for every weapon, the Founder title and the Founder emblem.",
-		productId = 0,
+		productId = 3720442629,
 		robux = 199,
 		grants = {
 			{ kind = "Camo", id = "Founder" },

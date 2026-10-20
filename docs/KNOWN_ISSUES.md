@@ -7,7 +7,7 @@ Date: 2026-10-20. Severity: **Blocker** (must fix or clear before launch), **Min
 |---|---|---|---|
 | 1 | Blocker | New title "Roblox Blox Ops": confirm use of "Roblox" in the name against Roblox brand guidelines, and the closeness of "Blox Ops" to "Black Ops" (see LAUNCH_READINESS) | Owner |
 | 2 | Blocker | DataStore persistence has never run for real (unpublished place, in-memory fallback) | Owner: publish and enable API access |
-| 3 | Blocker | Robux purchase never run end to end: the Founder Pack product id is 0 | Owner: create the product |
+| 3 | Blocker | Robux purchase never run end to end (Founder Pack product 3720442629 is now configured) | Owner: one test purchase on the published game |
 | 4 | Blocker | Multiplayer combat, objectives contested by both teams, killstreaks and perks in fights are untested | Needs a 2+ player session |
 | 5 | Minor | Touch controls tested only through the Studio QA hook. Real finger taps are untested | Needs a phone or the device emulator |
 | 6 | Minor | Gamepad bindings exist but have not been tried on a physical controller | Needs a controller |
