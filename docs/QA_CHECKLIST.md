@@ -133,3 +133,13 @@ Tip: in Studio, `workspace:SetAttribute("QA_GrantLevels", 30)` unlocks everythin
 | 2026-10-20 | e334c3d → Phase 5 report commit | Claude (Studio via MCP, 1 client) | Phase 5 items marked ✓ | Pass, after 1 fix (Red Mesa spawn facing) |
 | 2026-10-20 | 3fc56a7 | Claude (Studio via MCP, 1 client) | Phase 6 items marked ✓ | Pass, no defects found |
 | 2026-10-20 | eecf596 | Claude (Studio via MCP, 1 client) | Phase 7 items marked ✓ | Pass, after 1 fix (touch layout) |
+
+## 2026-10-20: Join mode, flicker fix, SFX (commit 3e87199)
+- Specs: 317 pass, 0 fail (new: surfaces.spec, joinqueue.spec). luau-lsp strict: 0 errors.
+- Studio (1 client): SELECT MODE screen appears on join; picking Domination queued the player
+  (bottom bar "QUEUED: DOMINATION"), switched all three vote options to Domination, and the match
+  started as Domination with the player deployed. No script errors in the output.
+- Flicker: SurfaceFix finds 253–1070 differently-coloured coplanar face pairs per map and leaves 0
+  after it runs (spec checks all six maps). Not yet eyeballed in Studio side by side.
+- Sound: all slots are 0, so nothing plays yet; playback untested until ids are added.
+- Needs 2 players: two players picking different modes, and joining a running match by its mode.
