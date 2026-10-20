@@ -31,6 +31,7 @@ export type Effective = {
 	adsFov: number,
 	scoped: boolean, -- built-in magnified scope (ADS shows a scope overlay)
 	suppressed: boolean,
+	reticle: string?, -- optic reticle drawn while aiming ("Dot" | "Holo" | "Chevron"); nil for iron sights
 	muzzleOffset: CFrame,
 	sightOffset: CFrame, -- eye point for ADS, relative to the grip origin
 	attachments: Selection,
@@ -169,6 +170,7 @@ function WeaponStats.resolve(def: any, selection: Selection?, catalog: { [string
 			-- A magnified scope is part of the weapon; optics only replace iron sights.
 			if att.optic and not def.scope then
 				e.adsFov = att.optic.fov
+				e.reticle = att.optic.reticle
 				e.sightOffset = CFrame.new((def.anchors.optic :: CFrame).Position + Vector3.new(0, att.optic.sightHeight, 0))
 			end
 		end

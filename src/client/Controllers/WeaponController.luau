@@ -212,6 +212,12 @@ local function fireOnce(): boolean
 	end
 	localMag[cur.slot] = mag - 1
 	shotId += 1
+	-- The server only syncs ammo on reloads, rejects and an empty mag; show the predicted count meanwhile.
+	local shown = ClientState.ammo[cur.slot]
+	if shown then
+		shown.mag = mag - 1
+		ClientState.AmmoChanged:Fire(cur.slot, shown)
+	end
 
 	local cam = camera()
 	local spread = math.rad(currentSpread(def))

@@ -39,9 +39,31 @@ Phase 2 (see `REPORT.md`); everything else is open.
 - [x] Server ammo is authoritative (HUD matches AmmoState)
 - [ ] R reloads; the HUD shows RELOADING; you cannot fire mid-reload
 - [ ] 1/2, mouse wheel or gamepad Y switches weapons; the HUD weapon name updates
-- [ ] Right mouse aims down sights; the crosshair hides
+- [x] Right mouse aims down sights; the crosshair hides
 - [ ] Shift sprints and blocks firing; C crouches
 - [ ] Speed hacking (WalkSpeed raised from the client console) is rubber-banded back
+
+## Attachments and Gunsmith (Phase 3)
+Tip: in Studio, `workspace:SetAttribute("QA_GrantLevels", 30)` unlocks everything and
+`workspace:SetAttribute("QA_HoldLobby", true)` keeps the lobby open while you test.
+- [x] Locked weapons show "UNLOCKS AT LEVEL N"
+- [ ] Clicking a locked weapon does not select it
+- [x] GUNSMITH opens on the selected weapon; slot list matches the weapon's slots
+- [x] Equipping an attachment updates the stat bars, deltas and details (mag, reload, ADS, range)
+- [x] DONE saves (lobby shows SAVED and "+N" on the summary); BACK discards; RESET clears
+- [ ] Backspace and gamepad B close the Gunsmith; Escape opens the Roblox menu as usual
+- [ ] Locked attachments show their unlock level and cannot be equipped
+- [x] Attachments are visible on the viewmodel after spawning
+- [x] Red dot, holo and scout scope draw their reticle centred in the glass while aiming
+- [x] Suppressed weapons show no muzzle flash
+- [ ] Suppressed weapons: enemies see no tracer, teammates do (needs 2 players)
+- [x] Sniper ADS shows the scope overlay and hides the viewmodel
+- [x] Burst weapons fire exactly 3 rounds per click
+- [ ] Shotgun pellets spread in the same pattern on client and server; a close hit kills in one shot
+- [x] HUD ammo counts down each shot
+- [ ] After a reload the HUD matches the server count
+- [x] Extended magazines raise the server magazine size (HUD shows the new size after spawning)
+- [x] Server rejects unknown attachments and attachments the weapon has no slot for
 
 ## Progression and persistence (published place)
 - [x] Match complete and time played XP are granted; the results breakdown matches
@@ -59,4 +81,5 @@ Phase 2 (see `REPORT.md`); everything else is open.
 ## Run log
 | Date | Commit | Tester | Scope | Result |
 |---|---|---|---|---|
-| 2026-10-20 | 8a766db | Claude (Studio via MCP, 1 client) | Items marked ✓ | Pass, after 4 fixes |
+| 2026-10-20 | 8a766db | Claude (Studio via MCP, 1 client) | Phase 2 items marked ✓ | Pass, after 4 fixes |
+| 2026-10-20 | Phase 3 playtest commit | Claude (Studio via MCP, 1 client) | Phase 3 items marked ✓ | Pass, after 4 fixes |

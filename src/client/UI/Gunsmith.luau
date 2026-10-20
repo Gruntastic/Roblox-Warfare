@@ -5,7 +5,7 @@
 --   Gunsmith.open(weaponId, selection, onDone, onClosed?) -> boolean
 --       Opens the editor on a copy of `selection` (attachment slot -> attachment id). The copy is
 --       sanitized the same way the server does on load (unknown / locked / wrong-slot ids dropped).
---       DONE calls `onDone(newSelection)` and closes; BACK / Escape / B / auto-close only close.
+--       DONE calls `onDone(newSelection)` and closes; BACK / Backspace (Escape is usually taken by the Roblox menu) / B / auto-close only close.
 --       `onClosed` runs on every close (DONE included). Returns false if the weapon id is unknown.
 --   Gunsmith.close()       closes without applying (no-op when closed).
 --   Gunsmith.isOpen() -> boolean
@@ -768,7 +768,7 @@ function Gunsmith.open(id: string, current: { [string]: string }?, onDone: (Sele
 
 	gui.Enabled = true
 	root.BackgroundTransparency = 1
-	Theme.tween(root, Theme.Tween.Normal, { BackgroundTransparency = 0.04 })
+	Theme.tween(root, Theme.Tween.Normal, { BackgroundTransparency = 0 })
 	content.Position = UDim2.fromOffset(0, 24)
 	Theme.tween(content, Theme.Tween.Slow, { Position = UDim2.fromOffset(0, 0) })
 
@@ -820,7 +820,7 @@ function Gunsmith.open(id: string, current: { [string]: string }?, onDone: (Sele
 			task.defer(Gunsmith.close)
 		end
 		return Enum.ContextActionResult.Sink
-	end, false, Enum.ContextActionPriority.High.Value + 50, Enum.KeyCode.Escape, Enum.KeyCode.ButtonB)
+	end, false, Enum.ContextActionPriority.High.Value + 50, Enum.KeyCode.Backspace, Enum.KeyCode.Escape, Enum.KeyCode.ButtonB)
 	return true
 end
 
@@ -965,7 +965,7 @@ local function buildPreview(parent: Instance)
 		end
 	end)
 	Theme.label({
-		Text = if Theme.isTouchOnly() then "DRAG TO ROTATE" else "DRAG TO ROTATE  ·  ESC TO GO BACK",
+		Text = if Theme.isTouchOnly() then "DRAG TO ROTATE" else "DRAG TO ROTATE  ·  BACKSPACE TO GO BACK",
 		Font = Theme.Fonts.Bold,
 		TextSize = 12,
 		TextColor3 = C.TextMuted,
@@ -1102,14 +1102,14 @@ function Gunsmith.init()
 	local canvas
 	gui, canvas = Theme.screen("Gunsmith", 11)
 	gui.Enabled = false
-	-- full-screen backdrop button: dims the lobby and swallows clicks meant for it
+	-- full-screen backdrop button: hides the lobby and swallows clicks meant for it
 	root = Theme.new("TextButton", {
 		Name = "Gunsmith",
 		Text = "",
 		AutoButtonColor = false,
 		Selectable = false,
 		BackgroundColor3 = C.Backdrop,
-		BackgroundTransparency = 0.04,
+		BackgroundTransparency = 0, -- opaque: lobby text must not bleed through the preview
 		BorderSizePixel = 0,
 		Size = UDim2.fromScale(1, 1),
 		Parent = canvas,

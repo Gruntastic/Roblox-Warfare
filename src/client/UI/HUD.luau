@@ -104,6 +104,13 @@ local scopeRings: { { frame: Frame, stroke: UIStroke, width: number } } = {}
 local scopeShown = false
 local scopeTween: Tween? = nil
 
+-- optic reticle (red dot / holo / chevron), centred on the point of aim while aiming through an optic
+local RETICLE_COLOR = Color3.fromRGB(255, 64, 48)
+local reticleGroup: CanvasGroup
+local reticleKinds: { [string]: Frame } = {}
+local reticleTween: Tween? = nil
+local reticleShown: string? = nil
+
 ---------------------------------------------------------------------------------------------
 -- Health + vignette
 ---------------------------------------------------------------------------------------------
@@ -344,15 +351,42 @@ local function setScope(on: boolean, instant: boolean?)
 	end
 end
 
+-- Fades in over the second half of the ADS transition so the dot appears as the glass lines up.
+local function setReticle(kind: string?, adsTime: number)
+	if kind == reticleShown then
+		return
+	end
+	reticleShown = kind
+	if reticleTween then
+		reticleTween:Cancel()
+		reticleTween = nil
+	end
+	if kind then
+		for name, frame in reticleKinds do
+			frame.Visible = name == kind
+		end
+		reticleGroup.GroupTransparency = 1
+		reticleGroup.Visible = true
+		local info = TweenInfo.new(adsTime * 0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, false, adsTime * 0.5)
+		reticleTween = Theme.tween(reticleGroup, info, { GroupTransparency = 0 })
+	else
+		reticleGroup.Visible = false
+	end
+end
+
 local function refreshScope()
 	local weaponId = ClientState.equippedWeaponId
 	local def = if weaponId then Theme.Weapons[weaponId] else nil
-	local want = gui.Enabled and ClientState.deployed and ClientState.ads and def ~= nil and def.scope ~= nil
+	local aiming = gui.Enabled and ClientState.deployed and ClientState.ads and def ~= nil
+	local want = aiming and def ~= nil and def.scope ~= nil
 	if gui.Enabled then
 		setScope(want)
 	else
 		setScope(false, true)
 	end
+	local stats = ClientState.equippedStats
+	local kind = if aiming and not want and stats and stats.id == weaponId then stats.reticle else nil
+	setReticle(kind, if stats then stats.adsTime else 0.2)
 end
 
 ---------------------------------------------------------------------------------------------
@@ -592,6 +626,83 @@ local function buildScope()
 	line(Vector2.new(0, 0.5), UDim2.fromScale(0, 0.5), UDim2.new(0.34, 0, 0, 6)) -- left post
 	line(Vector2.new(1, 0.5), UDim2.fromScale(1, 0.5), UDim2.new(0.34, 0, 0, 6)) -- right post
 	line(Vector2.new(0.5, 1), UDim2.fromScale(0.5, 1), UDim2.new(0, 6, 0.34, 0)) -- bottom post
+end
+
+local function buildReticle()
+	reticleGroup = Theme.new("CanvasGroup", {
+		Name = "Reticle",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(64, 64),
+		GroupTransparency = 1,
+		Visible = false,
+		Parent = canvas,
+	})
+	local function holder(name: string): Frame
+		local f = Theme.new("Frame", {
+			Name = name,
+			BackgroundTransparency = 1,
+			Size = UDim2.fromScale(1, 1),
+			Visible = false,
+			Parent = reticleGroup,
+		})
+		reticleKinds[name] = f
+		return f
+	end
+	local function dot(parent: Frame, size: number)
+		local d = Theme.new("Frame", {
+			Name = "Dot",
+			BackgroundColor3 = RETICLE_COLOR,
+			BorderSizePixel = 0,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(size, size),
+			Parent = parent,
+		})
+		Theme.new("UICorner", { CornerRadius = UDim.new(0.5, 0), Parent = d })
+		Theme.new("UIStroke", { Color = RETICLE_COLOR, Transparency = 0.6, Thickness = 2, Parent = d }) -- glow
+	end
+
+	dot(holder("Dot"), 5)
+
+	local holo = holder("Holo")
+	dot(holo, 4)
+	local ring = Theme.new("Frame", {
+		Name = "Ring",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(40, 40),
+		Parent = holo,
+	})
+	Theme.new("UICorner", { CornerRadius = UDim.new(0.5, 0), Parent = ring })
+	Theme.new("UIStroke", { Color = RETICLE_COLOR, Thickness = 2, Transparency = 0.1, Parent = ring })
+
+	-- chevron: two short strokes meeting at the point of aim, plus a hairline drop below
+	local chevron = holder("Chevron")
+	for _, side in { -1, 1 } do
+		Theme.new("Frame", {
+			Name = "Arm",
+			BackgroundColor3 = RETICLE_COLOR,
+			BorderSizePixel = 0,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0.5, side * 5, 0.5, 4),
+			Size = UDim2.fromOffset(13, 2),
+			Rotation = side * -38,
+			Parent = chevron,
+		})
+	end
+	Theme.new("Frame", {
+		Name = "Drop",
+		BackgroundColor3 = RETICLE_COLOR,
+		BackgroundTransparency = 0.3,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0.5, 12),
+		Size = UDim2.fromOffset(1, 18),
+		Parent = chevron,
+	})
 end
 
 local function buildHealth()
@@ -951,6 +1062,7 @@ function HUD.init()
 	gui, canvas = Theme.screen("HUD", 5)
 	gui.Enabled = false
 	buildScope()
+	buildReticle()
 	buildVignette()
 	buildIndicators()
 	buildHealth()
