@@ -16,7 +16,8 @@ Net.Events = {
 	"SelectLoadout", -- (index: number)
 	"VoteMap", -- (optionId: string) one of MatchStatePayload.options
 	"Interact", -- (holding: boolean) S&D plant / defuse: true on press, false on release
-	"RequestDeploy", -- () ask to join the running match from the lobby
+	"RequestDeploy", -- () ask to join the running match from the lobby (only when queued for its mode)
+	"JoinQueue", -- (pick: string?) mode id or "Any" to queue (joins a running match of that mode); nil leaves the queue
 	"ActivateStreak", -- (id: string, aimDirection: Vector3?) use an earned killstreak; targeted ones aim from the server head position
 	"Prestige", -- (confirm: string) must be exactly "PRESTIGE"; only at max level, only outside a match
 	"EquipCosmetic", -- (kind: "Camo" | "Title" | "Emblem", id: string, weaponId: string?) camo needs weaponId; Emblem "" unequips

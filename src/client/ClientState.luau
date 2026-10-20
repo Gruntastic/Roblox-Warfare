@@ -54,6 +54,8 @@ local ClientState = {
 	MenuChanged = Signal.new() :: Signal.Signal<()>,
 	-- Phase 7: on-screen touch controls (UI/TouchControls) -> controllers. name: "Fire" | "ADS" |
 	-- "Reload" | "Swap" | "Melee" | "Sprint" | "Crouch"; down = pressed (true) or released (false)
+	-- sound cue: Config/Audio slot name, optional world position (nil = 2D), optional pitch offset
+	Sfx = Signal.new() :: Signal.Signal<string, Vector3?, number?>,
 	TouchAction = Signal.new() :: Signal.Signal<string, boolean>,
 }
 

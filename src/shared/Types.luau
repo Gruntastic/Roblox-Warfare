@@ -36,6 +36,8 @@ export type MatchStatePayload = {
 	options: { VoteOption }, -- lobby vote options for the next match (empty outside the lobby)
 	votes: { [string]: number }, -- option id -> vote count
 	inMatch: { number }, -- userIds taking part in the match (alive or dead; S&D dead players stay listed)
+	queue: { [string]: number }?, -- join queue: mode id or "Any" -> players queued for it
+	queuedMode: string?, -- lobby only: the mode the queue has chosen for the next match (nil = vote decides)
 }
 
 -- Objective modes (Phase 4). Sent on `ObjectiveState` whenever it changes (at most ~5 per second),

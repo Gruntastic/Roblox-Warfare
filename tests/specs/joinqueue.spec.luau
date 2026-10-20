@@ -1,0 +1,30 @@
+-- Join queue (mode select) rules.
+local T = require("../lib/T")
+local Loader = require("../lib/Loader")
+local MatchRules = Loader.load("src/shared/Pure/MatchRules.luau")
+local ROT = { "TDM", "DOM", "KC", "HP", "FFA", "SND" }
+
+T.describe("Join queue", function()
+	T.it("Any accepts every mode, a pick only its own, nil nothing", function()
+		assert(MatchRules.queueAccepts("Any", "DOM"))
+		assert(MatchRules.queueAccepts("DOM", "DOM"))
+		assert(not MatchRules.queueAccepts("TDM", "DOM"))
+		assert(not MatchRules.queueAccepts(nil, "DOM"))
+	end)
+	T.it("the most picked specific mode plays next", function()
+		T.expect(MatchRules.pickQueuedMode({ "DOM", "SND", "SND", "Any", "Any", "Any" }, ROT, "TDM")).toBe("SND")
+	end)
+	T.it("all Any (or nobody) leaves it to the vote", function()
+		T.expect(MatchRules.pickQueuedMode({ "Any", "Any" }, ROT, "TDM")).toBe(nil)
+		T.expect(MatchRules.pickQueuedMode({}, ROT, "TDM")).toBe(nil)
+	end)
+	T.it("ties go to the next mode in the rotation after the last one", function()
+		T.expect(MatchRules.pickQueuedMode({ "TDM", "HP" }, ROT, "KC")).toBe("HP")
+		T.expect(MatchRules.pickQueuedMode({ "TDM", "HP" }, ROT, "FFA")).toBe("TDM")
+	end)
+	T.it("ignores unknown picks", function()
+		T.expect(MatchRules.pickQueuedMode({ "Nope", "Nope", "DOM" }, ROT, "TDM")).toBe("DOM")
+	end)
+end)
+
+return nil

@@ -60,6 +60,10 @@ local objectiveDirty = false
 local lastObjectiveSent = 0
 local lastInteract: { [Player]: number } = {}
 local deployed: { [Player]: boolean } = {}
+-- Join queue: players pick a mode (or "Any") before they are put in a match. Only queued players
+-- are counted for the lobby and deployed, and only into a match of the mode they picked.
+local queued: { [Player]: string } = {}
+local lastQueueChange: { [Player]: number } = {}
 local startLevels: { [Player]: number } = {}
 local teamInstances: { [string]: Team } = {}
 local stateDirty = true
@@ -119,6 +123,14 @@ local function buildState(): Types.MatchStatePayload
 	for player in deployed do
 		table.insert(inMatch, player.UserId)
 	end
+	local queue: { [string]: number } = {}
+	local picks = {}
+	for player, pick in queued do
+		if player.Parent then
+			queue[pick] = (queue[pick] or 0) + 1
+			table.insert(picks, pick)
+		end
+	end
 	return {
 		phase = MatchService.phase,
 		modeId = mode.id,
@@ -133,6 +145,8 @@ local function buildState(): Types.MatchStatePayload
 		options = if MatchService.phase == "Lobby" then options else {},
 		votes = voteCounts,
 		inMatch = inMatch,
+		queue = queue,
+		queuedMode = if MatchService.phase == "Lobby" then MatchRules.pickQueuedMode(picks, Match.ModeRotation, mode.id) else nil,
 	}
 end
 
@@ -440,7 +454,7 @@ end
 local function eligiblePlayers(): { Player }
 	local list = {}
 	for _, p in Players:GetPlayers() do
-		if DataService.getProfile(p) then
+		if DataService.getProfile(p) and queued[p] ~= nil then
 			table.insert(list, p)
 		end
 	end
@@ -467,6 +481,31 @@ local function mapDisplayName(id: string): string
 		end
 	end
 	return id
+end
+
+-- The mode the queue has chosen for the next match, if any player picked a specific mode.
+local function queueLeader(): string?
+	local picks = {}
+	for player, pick in queued do
+		if player.Parent then
+			table.insert(picks, pick)
+		end
+	end
+	return MatchRules.pickQueuedMode(picks, Match.ModeRotation, mode.id)
+end
+
+-- When the queue has chosen a mode, every lobby vote option plays it (the vote picks the map).
+local function syncOptionModes()
+	local leader = queueLeader()
+	local rotation = Match.ModeRotation
+	local start = (table.find(rotation, mode.id) or 0) % #rotation
+	for i, o in options do
+		local modeId = leader or rotation[(start + i - 1) % #rotation + 1]
+		local m = ModesConfig.Modes[modeId]
+		o.modeId = modeId
+		o.modeName = if m then m.displayName else modeId
+	end
+	stateDirty = true
 end
 
 -- Fresh lobby vote: distinct maps (the one just played last, when there is a choice) paired with
@@ -499,7 +538,7 @@ local function makeOptions()
 			modeName = if m then m.displayName else modeId,
 		})
 	end
-	stateDirty = true
+	syncOptionModes()
 end
 
 -- The most voted option; ties go to the earliest option.
@@ -683,7 +722,13 @@ local function runMatch()
 	-- QA hook, Studio only: workspace attributes QA_Mode / QA_Map force the next match.
 	local forcedMode = if RunService:IsStudio() then workspace:GetAttribute("QA_Mode") else nil
 	local forcedMap = if RunService:IsStudio() then workspace:GetAttribute("QA_Map") else nil
-	local nextMode = if type(forcedMode) == "string" and ModesConfig.Modes[forcedMode] then forcedMode elseif chosen then chosen.modeId else mode.id
+	-- the queue's mode wins over the vote's (the vote options already show it); the vote picks the map
+	local queuedMode = queueLeader()
+	local nextMode = if type(forcedMode) == "string" and ModesConfig.Modes[forcedMode]
+		then forcedMode
+		elseif queuedMode then queuedMode
+		elseif chosen then chosen.modeId
+		else mode.id
 	local nextMap = if type(forcedMap) == "string" and MapsFolder:FindFirstChild(forcedMap) then forcedMap elseif chosen then chosen.mapId else mapId
 	mode = ModesConfig.Modes[nextMode]
 	ctx.mode = mode
@@ -703,8 +748,14 @@ local function runMatch()
 	ProgressionService.beginMatch()
 	KillstreakService.beginMatch(mapModel)
 
-	-- Countdown: everyone present is deployed, frozen in place.
-	local roster = eligiblePlayers()
+	-- Countdown: everyone queued for this mode (or "Any") is deployed, frozen in place. Players
+	-- queued for another mode stay in the lobby for a later match.
+	local roster = {}
+	for _, player in eligiblePlayers() do
+		if MatchRules.queueAccepts(queued[player], mode.id) then
+			table.insert(roster, player)
+		end
+	end
 	for _, player in roster do
 		assignTeam(player)
 	end
@@ -850,8 +901,9 @@ function MatchService.init()
 		end
 	end)
 
-	Net.event("RequestDeploy").OnServerEvent:Connect(function(player)
-		if deployed[player] or not DataService.getProfile(player) then
+	-- Joins the running match (late join / respawn fallback) when the player is queued for its mode.
+	local function lateJoin(player: Player)
+		if deployed[player] or not DataService.getProfile(player) or not MatchRules.queueAccepts(queued[player], mode.id) then
 			return
 		end
 		if MatchService.phase == "Playing" or MatchService.phase == "Countdown" then
@@ -865,6 +917,27 @@ function MatchService.init()
 				return
 			end
 			task.spawn(spawnPlayer, player)
+		end
+	end
+	Net.event("RequestDeploy").OnServerEvent:Connect(lateJoin)
+
+	Net.event("JoinQueue").OnServerEvent:Connect(function(player, pick)
+		if pick ~= nil and (type(pick) ~= "string" or (pick ~= MatchRules.ANY and not table.find(Match.ModeRotation, pick))) then
+			return
+		end
+		local t = os.clock()
+		if t - (lastQueueChange[player] or 0) < 0.3 then
+			return
+		end
+		lastQueueChange[player] = t
+		queued[player] = pick
+		player:SetAttribute("QueuedMode", pick)
+		if MatchService.phase == "Lobby" then
+			syncOptionModes()
+		end
+		stateDirty = true
+		if pick ~= nil and (MatchService.phase == "Playing" or MatchService.phase == "Countdown") then
+			lateJoin(player)
 		end
 	end)
 
@@ -885,6 +958,8 @@ function MatchService.init()
 		lines[player] = nil
 		votes[player] = nil
 		deployed[player] = nil
+		queued[player] = nil
+		lastQueueChange[player] = nil
 		startLevels[player] = nil
 		lastInteract[player] = nil
 		stateDirty = true

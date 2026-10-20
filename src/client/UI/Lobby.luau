@@ -14,6 +14,7 @@ local Theme = require(script.Parent.Theme)
 local Gunsmith = require(script.Parent.Gunsmith)
 local Barracks = require(script.Parent.Barracks)
 local StoreMenu = require(script.Parent.Store)
+local PlayMenu = require(script.Parent.PlayMenu)
 local StoreRulesUI = require(script.Parent.StoreRulesUI)
 local Phase5Rules = require(script.Parent.Phase5Rules)
 local ClientState = require(script.Parent.Parent.ClientState)
@@ -104,6 +105,7 @@ local summaryRows: { [string]: SummaryRow } = {}
 local saveButton: TextButton
 local saveStatus: TextLabel
 local deployButton: TextButton
+local changeModeButton: TextButton
 local bottomStatus: TextLabel
 
 ---------------------------------------------------------------------------------------------
@@ -1346,11 +1348,41 @@ local function shouldShow(): boolean
 	return false
 end
 
+-- The mode-select pick the server confirmed (mode id or "Any"), or nil when not queued.
+local function queuedPick(): string?
+	local pick = localPlayer:GetAttribute("QueuedMode")
+	return if type(pick) == "string" then pick else nil
+end
+
+local function pickName(pick: string): string
+	if pick == "Any" then
+		return "ANY MODE"
+	end
+	local m = Theme.Modes[pick]
+	return string.upper(if m then m.displayName else pick)
+end
+
+-- Bottom bar: SELECT MODE when not queued; DEPLOY when queued for the running match (respawn
+-- fallback / late join); otherwise the queue status with CHANGE MODE.
 local function refreshDeploy()
 	local ms = ClientState.matchState
-	local canDeploy = ms ~= nil and ms.phase == "Playing" and not ClientState.deployed
-	deployButton.Visible = canDeploy
-	bottomStatus.Visible = not canDeploy
+	local pick = queuedPick()
+	local canDeploy = ms ~= nil
+		and ms.phase == "Playing"
+		and not ClientState.deployed
+		and pick ~= nil
+		and (pick == "Any" or pick == ms.modeId)
+	if pick == nil then
+		deployButton.Text = "SELECT MODE"
+		deployButton.Visible = true
+	else
+		if deployButton.Text == "SELECT MODE" then
+			deployButton.Text = "DEPLOY"
+		end
+		deployButton.Visible = canDeploy
+	end
+	bottomStatus.Visible = not deployButton.Visible
+	changeModeButton.Visible = pick ~= nil
 end
 
 local function setShown(show: boolean)
@@ -1813,6 +1845,10 @@ local function buildBottom(parent: Instance)
 		Parent = parent,
 	}, "Primary")
 	deployButton.Activated:Connect(function()
+		if queuedPick() == nil then
+			PlayMenu.open()
+			return
+		end
 		fire("RequestDeploy")
 		deployButton.Text = "DEPLOYING..."
 		task.delay(3, function()
@@ -1829,6 +1865,19 @@ local function buildBottom(parent: Instance)
 		Size = UDim2.fromOffset(700, 30),
 		Parent = parent,
 	})
+	changeModeButton = Theme.button({
+		Name = "ChangeMode",
+		Text = "CHANGE MODE",
+		TextSize = 16,
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -48, 1, -36),
+		Size = UDim2.fromOffset(200, 46),
+		Visible = false,
+		Parent = parent,
+	})
+	changeModeButton.Activated:Connect(function()
+		fire("JoinQueue", nil) -- leave the queue; the mode select opens again
+	end)
 end
 
 function Lobby.init()
@@ -1928,6 +1977,8 @@ function Lobby.init()
 		refreshVisibility()
 	end)
 
+	localPlayer:GetAttributeChangedSignal("QueuedMode"):Connect(refreshVisibility)
+
 	lastDeployed = ClientState.deployed
 	refreshRank()
 	refreshMatchInfo()
@@ -1950,11 +2001,20 @@ function Lobby.start()
 			end
 			local phase = phaseText(ms)
 			local bottom = ""
-			if ms then
+			local pick = queuedPick()
+			if ms and pick then
+				local prefix = "QUEUED: " .. pickName(pick) .. "  -  "
+				local fits = pick == "Any" or (ms.phase ~= "Lobby" and pick == ms.modeId) or (ms.phase == "Lobby" and (ms.queuedMode == nil or ms.queuedMode == pick))
 				if ms.phase == "Lobby" then
-					bottom = if ms.phaseEndsAt > 0 then "SELECT YOUR LOADOUT  -  MATCH STARTS IN " .. timer else "WAITING FOR MORE OPERATORS..."
+					bottom = prefix
+						.. if not fits
+							then "NEXT MATCH IS " .. pickName(ms.queuedMode or "") .. ". YOU WAIT FOR THE ONE AFTER"
+							elseif ms.phaseEndsAt > 0 then "MATCH STARTS IN " .. timer
+							else "WAITING FOR MORE OPERATORS..."
 				elseif ms.phase == "Countdown" then
-					bottom = "DEPLOYING IN " .. timer
+					bottom = prefix .. (if fits then "DEPLOYING IN " .. timer else "WAITING FOR THE NEXT MATCH")
+				else
+					bottom = prefix .. "WAITING FOR THE NEXT MATCH"
 				end
 			end
 			if timer ~= lastTimer then

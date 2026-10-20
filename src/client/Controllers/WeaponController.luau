@@ -164,6 +164,7 @@ local function equip(slot: Slot, notifyServer: boolean)
 	ClientState.equippedWeaponId = target.def.id
 	ClientState.equippedStats = target.def
 	ClientState.WeaponChanged:Fire(slot, target.def.id)
+	ClientState.Sfx:Fire("Equip")
 	if notifyServer then
 		Net.event("Equip"):FireServer(slot)
 	end
@@ -186,6 +187,22 @@ local function startReload()
 	reloadDuration = if mag == 0 then cur.def.reloadEmptyTime else cur.def.reloadTime
 	reloadingUntil = os.clock() + reloadDuration
 	setAds(false)
+	-- reload sounds: shotguns load shells, everything else swaps the magazine
+	local token = reloadingUntil
+	local shotgun = cur.def.class == "Shotgun"
+	ClientState.Sfx:Fire(if shotgun then "ShellLoad" else "MagOut")
+	task.delay(reloadDuration * 0.55, function()
+		if reloadingUntil == token then
+			ClientState.Sfx:Fire(if shotgun then "ShellLoad" else "MagIn")
+		end
+	end)
+	if mag == 0 and not shotgun then
+		task.delay(reloadDuration * 0.85, function()
+			if reloadingUntil == token then
+				ClientState.Sfx:Fire("BoltRack")
+			end
+		end)
+	end
 	Net.event("Reload"):FireServer(cur.slot)
 end
 
@@ -197,6 +214,29 @@ local function currentSpread(def: any): number
 		base *= def.spread.movingMultiplier
 	end
 	return base
+end
+
+local lastDryAt = 0
+
+local function impactSlot(material: Enum.Material): string
+	local name = material.Name
+	if string.find(name, "Metal") or name == "CorrodedMetal" or name == "DiamondPlate" or name == "Foil" then
+		return "Impact.Metal"
+	elseif string.find(name, "Wood") then
+		return "Impact.Wood"
+	elseif name == "Grass" or name == "Sand" or name == "Ground" or name == "Mud" or name == "Snow" or name == "LeafyGrass" or name == "Fabric" then
+		return "Impact.Dirt"
+	end
+	return "Impact.Concrete"
+end
+
+-- A small fixed pitch offset per weapon, so guns of one class sharing a sound still differ.
+local function weaponPitch(id: string): number
+	local h = 0
+	for i = 1, #id do
+		h = (h * 31 + string.byte(id, i)) % 1000
+	end
+	return (h / 1000 - 0.5) * 0.12
 end
 
 local function fireOnce(): boolean
@@ -214,6 +254,10 @@ local function fireOnce(): boolean
 	local mag = localMag[cur.slot] or 0
 	if mag <= 0 then
 		burstRemaining = 0
+		if now - lastDryAt > 0.3 then
+			lastDryAt = now
+			ClientState.Sfx:Fire("Dry")
+		end
 		startReload()
 		return false
 	end
@@ -251,16 +295,25 @@ local function fireOnce(): boolean
 	raycastParams.FilterDescendantsInstances = ignore
 	local pelletCount = def.pellets or 1
 	local dirs: { Vector3 } = if pelletCount > 1 then Pellets.directions(CFrame.lookAt(origin, origin + direction), pelletCount, def.pelletSpread or 5) else { direction }
-	for _, d in ipairs(dirs) do
+	for i, d in ipairs(dirs) do
 		local result = workspace:Raycast(origin, d * def.damage.maxRange, raycastParams)
 		local hitPos = if result then result.Position else origin + d * def.damage.maxRange
 		Effects.tracer(cur.muzzle.WorldPosition, hitPos)
 		if result and not (result.Instance:FindFirstAncestorOfClass("Model") and (result.Instance:FindFirstAncestorOfClass("Model") :: Model):FindFirstChildOfClass("Humanoid")) then
 			Effects.impact(result.Position, result.Normal)
+			if i == 1 then
+				ClientState.Sfx:Fire(impactSlot(result.Material), result.Position)
+			end
 		end
 	end
 	if not def.suppressed then
 		Effects.muzzleFlash(cur.muzzle)
+	end
+	ClientState.Sfx:Fire(if def.suppressed then "Shot.Suppressed" else "Shot." .. def.class, nil, weaponPitch(def.id))
+	if def.class == "Sniper" and (localMag[cur.slot] or 0) > 0 then
+		task.delay(math.min(0.35, 60 / def.rpm * 0.5), function()
+			ClientState.Sfx:Fire("BoltCycle")
+		end)
 	end
 
 	local adsMult = 1 + (def.recoil.adsMultiplier - 1) * adsAlpha
@@ -279,6 +332,7 @@ local function melee()
 	end
 	lastMeleeAt = os.clock()
 	meleeAnimUntil = lastMeleeAt + 0.35
+	ClientState.Sfx:Fire("Melee")
 	Net.event("Melee"):FireServer()
 end
 
