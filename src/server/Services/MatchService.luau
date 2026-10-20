@@ -12,6 +12,7 @@ local Teams = game:GetService("Teams")
 local Shared = ReplicatedStorage.Shared
 local Net = require(Shared.Net)
 local Types = require(Shared.Types)
+local SurfaceFix = require(Shared.SurfaceFix)
 local TeamsLogic = require(Shared.Pure.Teams)
 local MatchRules = require(Shared.Pure.MatchRules)
 local ModesConfig = require(Shared.Config.Modes)
@@ -216,6 +217,7 @@ local function loadMap(id: string)
 	end
 	local def = require(module :: ModuleScript) :: any
 	local model = def.build()
+	SurfaceFix.apply(model) -- no flickering coplanar faces
 	model.Name = "Map"
 	model.Parent = workspace
 	mapModel = model
