@@ -252,7 +252,7 @@ credits and crates earned through real matches.
 1. **Publish the place and enable Studio API access** (Game Settings → Security), so DataStore
    persistence can be tested for real.
 2. ~~Connect a GitHub repository~~ Done: https://github.com/Gruntastic/roblox-warfare (`main`).
-4. **Create the Founder Pack developer product** on the published game and put its id in
-   `src/shared/Config/Store.luau` (`productId`). Until then the bundle shows COMING SOON.
 3. **Run one two-player test**, either Studio Test → Clients and Servers with 2 players, or a
    private server, to clear the combat items above. `docs/QA_CHECKLIST.md` lists the steps.
+4. **Create the Founder Pack developer product** on the published game and put its id in
+   `src/shared/Config/Store.luau` (`productId`). Until then the bundle shows COMING SOON.
