@@ -203,6 +203,7 @@ function ProgressionService.endMatch(player: Player, secondsPlayed: number, won:
 	table.sort(breakdown, function(a, b)
 		return a.amount > b.amount
 	end)
+	ProgressionService.sync(player) -- stats and XP changed; refresh the lobby view
 	task.spawn(DataService.saveNow, player)
 	return { total = l.total, breakdown = breakdown }
 end

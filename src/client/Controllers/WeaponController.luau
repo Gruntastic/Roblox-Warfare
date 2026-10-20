@@ -186,7 +186,9 @@ end
 
 local function fireOnce()
 	local cur = current
-	if not cur then
+	local ms = ClientState.matchState
+	-- The server rejects shots outside Playing; don't fake them locally (no flash, no mag drift).
+	if not cur or not canAct() or not ms or ms.phase ~= "Playing" then
 		return
 	end
 	local def = cur.def

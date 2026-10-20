@@ -400,13 +400,13 @@ local function teamColumn(title: string, color: Color3, lines: { Types.PlayerLin
 			Size = UDim2.new(1, -70, 1, 0),
 			Parent = rowFrame,
 		})
-		-- PlayerLine has no level; only the local player's rank is known (from the profile).
-		if isMe and profile then
+		local level = if isMe and profile then profile.account.level else line.level
+		if level then
 			Theme.label({
-				Text = "RANK " .. tostring(profile.account.level),
+				Text = "RANK " .. tostring(level),
 				Font = Theme.Fonts.Bold,
 				TextSize = 11,
-				TextColor3 = C.Accent,
+				TextColor3 = if isMe then C.Accent else C.TextDim,
 				TextXAlignment = Enum.TextXAlignment.Right,
 				AnchorPoint = Vector2.new(1, 0),
 				Position = UDim2.new(1, -8, 0, 0),
@@ -423,8 +423,20 @@ local function rebuildPlayers()
 	if not ms then
 		return
 	end
-	if #ms.teams == 0 then
-		teamColumn("Operators", C.Accent, ms.players, 1, 1)
+	local anyAssigned = false
+	for _, line in ms.players do
+		if line.team then
+			anyAssigned = true
+			break
+		end
+	end
+	-- FFA, or a lobby where teams are not picked yet: one list of everyone present.
+	if #ms.teams == 0 or not anyAssigned then
+		local everyone = table.clone(ms.players)
+		table.sort(everyone, function(a, b)
+			return a.name < b.name
+		end)
+		teamColumn("Operators", C.Accent, everyone, 1, 1)
 		return
 	end
 	local width = 1 / #ms.teams

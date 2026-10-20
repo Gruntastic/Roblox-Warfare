@@ -4,12 +4,14 @@
 Used when Rojo's live-sync plugin is unavailable (e.g. driving Studio through MCP).
 Follows Rojo's file conventions: init.server/init.client/init.luau directories, *.server.luau,
 *.client.luau and *.luau files. Output: one .luau file per chunk in the given out dir.
-Usage: studio_sync.py <repo_root> <out_dir> [max_chunk_bytes]
+Usage: studio_sync.py <repo_root> <out_dir> [max_chunk_bytes] [only_path_prefix,...]
+The optional prefixes (dot-joined instance paths) limit output to changed files.
 """
 import json, os, sys
 
 root, out = sys.argv[1], sys.argv[2]
 limit = int(sys.argv[3]) if len(sys.argv) > 3 else 90000
+only = sys.argv[4].split(",") if len(sys.argv) > 4 else None
 project = json.load(open(os.path.join(root, "default.project.json")))
 
 entries = []  # (instance_path list, class, source or None)
@@ -87,6 +89,8 @@ os.makedirs(out, exist_ok=True)
 chunks, cur = [], HEADER
 for path, cls, src in entries:
     if len(path) < 2:
+        continue
+    if only and not any(".".join(path).startswith(o) for o in only):
         continue
     stmt = "do local inst = ensure(%s, %s)\n" % ("{" + ",".join(json.dumps(p) for p in path) + "}", json.dumps(cls))
     if src is not None:

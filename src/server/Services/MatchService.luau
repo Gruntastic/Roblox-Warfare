@@ -3,6 +3,7 @@
 -- Owns teams, spawns, map loading, scoring and the authoritative MatchState broadcast.
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Teams = game:GetService("Teams")
 
@@ -54,8 +55,10 @@ local function buildState(): Types.MatchStatePayload
 		table.insert(teams, { id = t.id, displayName = t.displayName, score = teamScores[t.id] or 0, color = t.color })
 	end
 	local players = {}
-	for player, line in lines do
-		if player.Parent then
+	for _, player in Players:GetPlayers() do
+		-- Everyone on the server is listed; players not yet in the match get an empty line.
+		local line = lines[player] or { userId = player.UserId, name = player.DisplayName, team = nil, kills = 0, deaths = 0, assists = 0, score = 0 }
+		do
 			local profile = DataService.getProfile(player)
 			table.insert(players, {
 				level = if profile then profile.account.level else nil,
@@ -442,8 +445,12 @@ local function runMatch()
 		end
 	end
 	waitPhase(function()
-		local over = MatchRules.isOver(mode.scoreLimit, teamScores, now(), phaseEndsAt)
-		return over
+		-- QA hook, Studio only: set workspace attribute QA_EndMatch to end the match early.
+		if RunService:IsStudio() and workspace:GetAttribute("QA_EndMatch") then
+			workspace:SetAttribute("QA_EndMatch", nil)
+			return true
+		end
+		return MatchRules.isOver(mode.scoreLimit, teamScores, now(), phaseEndsAt)
 	end)
 
 	-- Results
@@ -474,8 +481,15 @@ local function runMatch()
 		CombatService.despawn(player)
 		local p: any = player
 		p.Team = nil
+		player:SetAttribute("Team", nil)
 	end
 	table.clear(deployed)
+	-- Back to the lobby with a clean board: no stale teams or scores from the finished match.
+	table.clear(lines)
+	for id in teamScores do
+		teamScores[id] = 0
+	end
+	stateDirty = true
 end
 
 function MatchService.canFight(player: Player): boolean
