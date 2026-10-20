@@ -1,5 +1,6 @@
 --!strict
--- End-of-match results: VICTORY / DEFEAT / DRAW banner, team scores, top players, XP breakdown
+-- End-of-match results: VICTORY / DEFEAT / DRAW banner (Free-for-All: "1ST PLACE" etc. by kills),
+-- team scores (FFA: top three players), top players, XP breakdown
 -- and an animated account XP bar from payload.startLevel to payload.account. Hidden when the
 -- match returns to the Lobby phase.
 local Players = game:GetService("Players")
@@ -10,6 +11,7 @@ local ClientState = require(script.Parent.Parent.ClientState)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Types = require(Shared.Types)
 local Leveling = require(Shared.Pure.Leveling)
+local ObjectiveRules = require(Shared.Pure.ObjectiveRules)
 local Progression = require(Shared.Config.Progression)
 
 local Results = {}
@@ -131,7 +133,36 @@ local function show(p: Types.MatchResultsPayload)
 			winnerName = t.displayName
 		end
 	end
-	if not p.winnerTeam then
+	local ffa = Theme.isFFA() or #(p.teams or {}) == 0
+	local players: { Types.PlayerLine } = p.players or {}
+	if ffa then
+		-- Free-for-All: placing by kills ("1ST PLACE", "2ND PLACE", ...) and the server's winner.
+		local place, tied = ObjectiveRules.place(players, localUserId)
+		local ffaWinner: string? = nil
+		for _, line in players do
+			if line.userId == p.winnerUserId then
+				ffaWinner = line.name
+			end
+		end
+		if place then
+			outcomeLabel.Text = ObjectiveRules.ordinal(place) .. " PLACE"
+			outcomeLabel.TextColor3 = if place == 1 then Theme.Colors.Accent elseif place <= 3 then Theme.Colors.Text else Theme.Colors.TextDim
+		else
+			outcomeLabel.Text = "MATCH OVER"
+			outcomeLabel.TextColor3 = Theme.Colors.Text
+		end
+		if p.winnerUserId == localUserId then
+			winnerLabel.Text = "YOU WIN THE MATCH"
+			winnerLabel.TextColor3 = Theme.Colors.Accent
+		elseif ffaWinner then
+			winnerLabel.Text = string.upper(ffaWinner) .. " WINS"
+			winnerLabel.TextColor3 = Theme.Colors.Text
+		else
+			winnerLabel.Text = if tied and place == 1 then "TIED FOR FIRST" else "NO OUTRIGHT WINNER"
+			winnerLabel.TextColor3 = Theme.Colors.TextDim
+		end
+		stripe.BackgroundColor3 = if place == 1 then Theme.Colors.Accent else Theme.Colors.Stroke
+	elseif not p.winnerTeam then
 		outcomeLabel.Text = "DRAW"
 		outcomeLabel.TextColor3 = Theme.Colors.Text
 		winnerLabel.Text = "NO TEAM CLAIMED THE FIELD"
@@ -147,11 +178,51 @@ local function show(p: Types.MatchResultsPayload)
 		winnerLabel.Text = string.upper(winnerName) .. " WINS"
 		winnerLabel.TextColor3 = winnerColor
 	end
-	stripe.BackgroundColor3 = if p.winnerTeam then winnerColor else Theme.Colors.Stroke
+	if not ffa then
+		stripe.BackgroundColor3 = if p.winnerTeam then winnerColor else Theme.Colors.Stroke
+	end
 
-	-- Team scores
+	-- Team scores (Free-for-All: the top three players by kills instead)
 	clearChildren(teamsRow)
-	for i, t in p.teams do
+	if ffa then
+		local podium = ObjectiveRules.sortFFA(players)
+		for i = 1, math.min(3, #podium) do
+			local line = podium[i]
+			local isMe = line.userId == localUserId
+			local color = if isMe then Theme.Colors.Accent else Theme.Colors.Text
+			local box = Theme.panel({
+				Size = UDim2.fromOffset(300, 74),
+				LayoutOrder = i,
+				Parent = teamsRow,
+			})
+			Theme.new("Frame", {
+				BackgroundColor3 = if i == 1 then Theme.Colors.Accent else Theme.Colors.Stroke,
+				BorderSizePixel = 0,
+				Size = UDim2.new(0, 5, 1, 0),
+				Parent = box,
+			})
+			Theme.label({
+				Text = string.format("%s  %s", ObjectiveRules.ordinal((ObjectiveRules.place(players, line.userId)) or i), string.upper(line.name)),
+				Font = Theme.Fonts.Bold,
+				TextSize = 18,
+				TextColor3 = color,
+				Position = UDim2.fromOffset(20, 0),
+				Size = UDim2.new(1, -110, 1, 0),
+				Parent = box,
+			})
+			Theme.label({
+				Text = tostring(line.kills),
+				Font = Theme.Fonts.Title,
+				TextSize = 40,
+				TextXAlignment = Enum.TextXAlignment.Right,
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, -18, 0, 0),
+				Size = UDim2.new(0, 90, 1, 0),
+				Parent = box,
+			})
+		end
+	end
+	for i, t in (if ffa then {} else p.teams) :: { Types.TeamScore } do
 		local color = if typeof(t.color) == "Color3" then t.color else Theme.teamColor(t.id)
 		local box = Theme.panel({
 			Size = UDim2.fromOffset(300, 74),
@@ -182,13 +253,17 @@ local function show(p: Types.MatchResultsPayload)
 
 	-- Top players
 	clearChildren(playersList)
-	local lines = table.clone(p.players)
-	table.sort(lines, function(a, b)
-		if a.score ~= b.score then
-			return a.score > b.score
-		end
-		return a.kills > b.kills
-	end)
+	local lines = table.clone(players)
+	if ffa then
+		lines = ObjectiveRules.sortFFA(players)
+	else
+		table.sort(lines, function(a, b)
+			if a.score ~= b.score then
+				return a.score > b.score
+			end
+			return a.kills > b.kills
+		end)
+	end
 	local function playerRow(cells: { string }, order: number, isHeader: boolean, isMe: boolean, teamId: string?)
 		local rowFrame: Frame = Theme.new("Frame", {
 			BackgroundColor3 = if isMe then Theme.Colors.Accent else Theme.Colors.PanelLight,
@@ -225,7 +300,7 @@ local function show(p: Types.MatchResultsPayload)
 	playerRow({ "PLAYER", "SCORE", "K", "D", "A" }, 0, true, false, nil)
 	for i = 1, math.min(TOP_PLAYERS, #lines) do
 		local l = lines[i]
-		playerRow({ string.format("%d  %s", i, l.name), tostring(l.score), tostring(l.kills), tostring(l.deaths), tostring(l.assists) }, i, false, l.userId == localUserId, l.team)
+		playerRow({ string.format("%d  %s", i, l.name), tostring(l.score), tostring(l.kills), tostring(l.deaths), tostring(l.assists) }, i, false, l.userId == localUserId, if ffa then nil else l.team)
 	end
 
 	-- XP breakdown

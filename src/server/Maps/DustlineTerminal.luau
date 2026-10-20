@@ -17,6 +17,13 @@
 	  Z   92..113   Bus bays (south lane: two walk-through buses)
 	  Z  113..128   Service tunnel (south flank)
 	Sable spawn = west depot (X < -122), Talon spawn = east freight gate (X > 122).
+	A thin continuous base slab (Y -8..-7) under the whole footprint is the bottom of the ground
+	(BoundsMin.Y = -8), because the track bed reaches lower than the other ground pieces.
+
+	Objectives (see docs/maps/DustlineTerminal.md, "Objectives"):
+	  Flags     A west hall half, B Platform A in front of the office, C east hall half
+	  Hardpoint 1 ticket hall centre, 2 west bus bays, 3 loading dock, 4 control office, 5 service tunnel
+	  S&D       Sable attacks in round 1; sites A (east loading yard) and B (east bus bays)
 
 	build() only uses Instance.new / Vector3 / CFrame / Color3 / Enum so it also runs under Lune.
 ]]
@@ -103,6 +110,10 @@ MapModule.atmosphere = {
 
 MapModule.killY = -40
 
+-- Playable box (outer faces of the boundary walls; Y from the bottom of the base slab).
+local BOUNDS_MIN = Vector3.new(-184, -8, -132)
+local BOUNDS_MAX = Vector3.new(184, 40, 132)
+
 -- Spawn gap layout on each team's screen wall (Z ranges), shared by geometry and docs.
 local SCREEN_X = 122 -- screen wall centre line |X|
 local GAPS = { { -100, -88 }, { -20, -8 }, { 44, 56 }, { 96, 108 } }
@@ -118,6 +129,10 @@ function MapModule.build(): Model
 	local spawns = Instance.new("Folder")
 	spawns.Name = "Spawns"
 	spawns.Parent = model
+
+	local objectives = Instance.new("Folder")
+	objectives.Name = "Objectives"
+	objectives.Parent = model
 
 	local folder: Instance = geometry
 	local function section(name: string)
@@ -322,6 +337,8 @@ function MapModule.build(): Model
 	blk(-SCREEN_X, -4, 113, SCREEN_X, 0, 132, P.concreteDark, "TunnelFloor")
 	blk(-184, -4, -132, -SCREEN_X, 0, 132, P.concreteWarm, "SableDepotGround")
 	blk(SCREEN_X, -4, -132, 184, 0, 132, P.concreteWarm, "TalonGateGround")
+	-- continuous base slab under everything (the track bed bottom is lower than the rest)
+	blk(-184, -8, -132, 184, -7, 132, P.concreteDark, "BaseSlab")
 	-- painted markings (0.06 thick, walkable)
 	blk(-SCREEN_X, 0, 57.5, SCREEN_X, 0.06, 59, P.paintYellow, "PlatformEdgeA")
 	blk(-SCREEN_X, 0, 75, SCREEN_X, 0.06, 76.5, P.paintYellow, "PlatformEdgeB")
@@ -806,6 +823,44 @@ function MapModule.build(): Model
 	end
 
 	-------------------------------------------------------------------------------------------
+	-- Objective zones (invisible boxes). floorY = top of the floor the zone sits on.
+	-------------------------------------------------------------------------------------------
+	local function zone(name: string, kind: string, x: number, floorY: number, z: number, sx: number, sz: number, attrs: { [string]: any })
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Size = Vector3.new(sx, 10, sz)
+		p.CFrame = CFrame.new(x, floorY + 5, z)
+		p.Anchored = true
+		p.Transparency = 1
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p:SetAttribute("Kind", kind)
+		for k, v in attrs do
+			p:SetAttribute(k, v)
+		end
+		p.Parent = objectives
+	end
+
+	-- Domination: A west hall half, B Platform A outside the office door, C east hall half.
+	zone("FlagA", "Flag", -60, 0, -22, 18, 18, { Label = "A" })
+	zone("FlagB", "Flag", 0, 0, 46, 20, 14, { Label = "B" })
+	zone("FlagC", "Flag", 60, 0, -22, 18, 18, { Label = "C" })
+
+	-- Hardpoint rotation: centre -> south -> north -> centre -> south flank (every hop 88+ studs).
+	zone("Hardpoint1_TicketHall", "Hardpoint", 0, 0, -3, 28, 16, { Order = 1 })
+	zone("Hardpoint2_BusBays", "Hardpoint", -40, 0, 102, 26, 18, { Order = 2 })
+	zone("Hardpoint3_LoadingDock", "Hardpoint", 0, 4, -58, 26, 16, { Order = 3 })
+	zone("Hardpoint4_ControlOffice", "Hardpoint", 0, 0, 30, 24, 16, { Order = 4 })
+	zone("Hardpoint5_ServiceTunnel", "Hardpoint", 30, 0, 121, 24, 16, { Order = 5 })
+
+	-- Search and Destroy: Sable (west) attacks first, so both sites sit on the Talon (east) side.
+	-- A: east loading yard between the parked car, the jersey barrier and the pallets.
+	-- B: east bus bays between the bay island, the barriers and the walk-through bus.
+	zone("BombSiteA", "BombSite", 66, 0, -68, 14, 14, { Label = "A" })
+	zone("BombSiteB", "BombSite", 42, 0, 102, 14, 14, { Label = "B" })
+
+	-------------------------------------------------------------------------------------------
 	-- Lobby camera + model attributes.
 	-------------------------------------------------------------------------------------------
 	local cam = Instance.new("Part")
@@ -821,6 +876,9 @@ function MapModule.build(): Model
 
 	model:SetAttribute("KillY", MapModule.killY)
 	model:SetAttribute("DisplayName", MapModule.displayName)
+	model:SetAttribute("BoundsMin", BOUNDS_MIN)
+	model:SetAttribute("BoundsMax", BOUNDS_MAX)
+	model:SetAttribute("SnDAttackBase", "Sable")
 
 	return model
 end

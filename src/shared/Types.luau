@@ -33,7 +33,7 @@ export type MatchStatePayload = {
 	players: { PlayerLine },
 	options: { VoteOption }, -- lobby vote options for the next match (empty outside the lobby)
 	votes: { [string]: number }, -- option id -> vote count
-	inMatch: { number }, -- userIds currently deployed
+	inMatch: { number }, -- userIds taking part in the match (alive or dead; S&D dead players stay listed)
 }
 
 -- Objective modes (Phase 4). Sent on `ObjectiveState` whenever it changes (at most ~5 per second),
@@ -44,7 +44,7 @@ export type ZoneState = {
 	position: Vector3, -- zone centre at floor level
 	size: Vector3, -- zone box size in the zone's own axes (rotated by `yaw` about +Y)
 	yaw: number, -- radians
-	owner: string?, -- team id holding the zone (Domination); nil = neutral
+	owner: string?, -- Domination: team holding the flag. Hardpoint: team alone in the live zone. nil = neutral
 	capturingTeam: string?, -- team the progress is moving towards
 	progress: number, -- 0..1 towards capturingTeam
 	contested: boolean, -- both teams present

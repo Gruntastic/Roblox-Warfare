@@ -1,6 +1,6 @@
 --!strict
 -- "ELIMINATED" overlay shown when the local character dies during Playing, with killer name
--- (from the most recent KillFeed entry naming us as victim) and a respawn countdown.
+-- (from the most recent KillFeed entry naming us as victim) and a respawn countdown (none in S&D).
 local Players = game:GetService("Players")
 
 local Theme = require(script.Parent.Theme)
@@ -27,7 +27,7 @@ local lastKillAt = -math.huge
 local function applyKiller(p: Types.KillFeedPayload?)
 	if p and p.killer and p.killer ~= localName then
 		killerLabel.RichText = true
-		killerLabel.Text = string.format('KILLED BY  <font color="%s">%s</font>', Theme.hex(Theme.teamColor(p.killerTeam)), Theme.escape(p.killer))
+		killerLabel.Text = string.format('KILLED BY  <font color="%s">%s</font>', Theme.hex(if Theme.isFFA() then Theme.Colors.Danger else Theme.teamColor(p.killerTeam)), Theme.escape(p.killer))
 		local parts = {}
 		if p.weaponId then
 			table.insert(parts, string.upper(Theme.weaponName(p.weaponId)))
@@ -71,6 +71,18 @@ local function show()
 	Theme.tween(centerScale, Theme.Tween.Pop, { Scale = 1 })
 	Theme.tween(root, Theme.Tween.Normal, { BackgroundTransparency = 0.55 })
 	Theme.tween(center, Theme.Tween.Normal, { GroupTransparency = 0 })
+
+	-- [Phase 4] Search and Destroy has no respawns during a round: no countdown, and the overlay
+	-- clears after a moment so the spectator view (UI/Objectives) can take over.
+	if Theme.isSnD() then
+		countdownLabel.Text = "WAITING FOR NEXT ROUND"
+		task.delay(Theme.SnDDeathHold, function()
+			if token == showToken then
+				hide()
+			end
+		end)
+		return
+	end
 
 	local endsAt = os.clock() + Theme.respawnDelay()
 	task.spawn(function()
@@ -185,6 +197,13 @@ function DeathScreen.init()
 			return
 		end
 		local ms = ClientState.matchState
+		-- [Phase 4] S&D respawns surviving players at each round start; that removes a living
+		-- character (DeployedChanged(false) from CharacterRemoving) and is not a death.
+		local character = Players.LocalPlayer.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		if humanoid and humanoid.Health > 0 then
+			return
+		end
 		if was and not showing and ms and ms.phase == "Playing" then
 			show()
 		end

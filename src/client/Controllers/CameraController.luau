@@ -30,6 +30,16 @@ local function update(dt: number)
 		UserInputService.MouseIconEnabled = false
 		return
 	end
+	-- [Phase 4 / UI] S&D spectating: UI/Objectives sets this LocalPlayer attribute while dead in a
+	-- live round and points CameraSubject at a living teammate. Follow it instead of the death /
+	-- lobby views. On respawn the branch above sees CameraType ~= Custom and restores our own view.
+	if player:GetAttribute("COR_Spectating") == true then
+		if cam.CameraType ~= Enum.CameraType.Follow then
+			cam.CameraType = Enum.CameraType.Follow
+		end
+		UserInputService.MouseIconEnabled = true
+		return
+	end
 	-- Keep the death view on our body briefly; otherwise show the lobby overview.
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")

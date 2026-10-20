@@ -12,9 +12,11 @@ Dustline Terminal is a regional bus and rail interchange at the edge of the dese
 - **Two flanks**: a north alley behind a wall of shipping containers, and a south service tunnel.
 - **Control office**: a two-storey building in the centre. It is the map's main vertical power position.
 
-The playable area is about 360 x 260 studs. The inner faces of the boundary walls are at X = +-180 and Z = +-128. The walls are 30 studs tall. Total part count is about 890.
+The playable area is about 360 x 260 studs. The inner faces of the boundary walls are at X = +-180 and Z = +-128. The walls are 30 studs tall. Total part count is about 890 (889 with the base slab).
 
 Axes: +X is east and -Z is north (the top of the sketch). The ground is at Y 0 everywhere except the sunken track bed (Y -3) and the office upper floor (Y 13). KillY is -40.
+
+The track bed reaches lower than the other ground pieces, so a thin continuous base slab (Y -8..-7) runs under the whole footprint. It is the bottom of the ground: the model attributes are `BoundsMin` = (-184, -8, -132) and `BoundsMax` = (184, 40, 132), the outer faces of the boundary walls. Existing floors were not moved.
 
 ## Top-down layout (not to scale; 1 char is about 6 studs)
 
@@ -109,6 +111,37 @@ Rule of thumb used throughout: every strong spot has at least two ways in, at le
 - Every gap is a short fenced corridor 16 studs deep (fins at |X| 112..128). Only shallow-angle lines can pass through it. A baffle wall on the spawn side (|X| 136..138) blocks those shallow lines, so no team spawn has an eye-level line into the shared play space. The spec checks this by casting 144 rays from each team spawn. The worst case is about 22 studs, into the tunnel mouth.
 - There are 16 FFA spawns spread over every zone (depots, alley, yard, both hall halves, Platform A, office ground floor, Platform B, bus bays and tunnel). They are at least 20 studs apart from each other.
 - Spawn parts sit on the floor (centre at Y 0.5), so CFrame + (0,3,0) stands a character on the ground.
+
+## Objectives
+
+All objective zones are invisible boxes in the `Objectives` folder, 10 studs tall, with their bottom face on the floor they sit on (see `docs/MAP_CONTRACT.md`). The layout is mirror-symmetric, so every placement below is either on the centre line or mirrored.
+
+**Domination (flags).** The team-spawn centroids are at X -158.5 and +158.5.
+
+| Flag | Centre (X, Z) | Size | Where |
+|---|---|---|---|
+| A | (-60, -22) | 18 x 18 | West hall half, between the west ticket counter, the waiting benches and the column pair. Nearer Sable. |
+| B | (0, 46) | 20 x 14 | Platform A, right outside the office's south door. Overlooked by the office's upper windows and the train car. |
+| C | (60, -22) | 18 x 18 | East hall half, mirror of A. Nearer Talon. |
+
+**Hardpoint.** Five zones, rotating through all three lanes. Each hop is at least 88 studs, and every zone is more than 100 studs from a team spawn.
+
+| Order | Zone | Centre (X, Z), floor Y | Size | Hop to next |
+|---|---|---|---|---|
+| 1 | Ticket hall centre (passage between the ticket office and the pylon) | (0, -3), 0 | 28 x 16 | 112 |
+| 2 | West bus bays (between the west bus and the bay island) | (-40, 102), 0 | 26 x 18 | 165 |
+| 3 | Loading dock deck | (0, -58), 4 | 26 x 16 | 88 |
+| 4 | Control office ground floor | (0, 30), 0 | 24 x 16 | 96 |
+| 5 | Service tunnel, east of the centre door | (30, 121), 0 | 24 x 16 | 128 (back to 1) |
+
+**Search and Destroy.** `SnDAttackBase` = `"Sable"`: Sable attacks from the west depot in round 1, and Talon defends the east. Both bomb sites are on the east side.
+
+| Site | Centre (X, Z) | Size | Where and cover |
+|---|---|---|---|
+| A | (66, -68) | 14 x 14 | East loading yard. The parked car at (48, -78), the jersey barrier at X 75..85, the pallets by the hall's north-east door and the dock's east stairs give cover. |
+| B | (42, 102) | 14 x 14 | East bus bays, between the bay island and the east bus. The barriers at X 29..39, the island planter and the walk-through bus give cover. |
+
+The sites are about 170 studs apart. Attackers reach A through the yard or the north alley, and B through the bus bays or the service tunnel. Defenders rotate between them through the east plaza or the east half of the hall.
 
 ## Sightline notes
 

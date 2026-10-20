@@ -21,10 +21,14 @@ and may export `init()` (connect signals; must not yield) and `start()` (spawned
 Modules talk to each other ONLY through `ClientState` signals/fields and `Net` remotes.
 
 `ClientState` (src/client/ClientState.luau) fields: `matchState`, `profile`, `ammo[slot]`,
-`deployed`, `equippedSlot`, `equippedWeaponId`, `ads`, `sprinting`.
+`deployed`, `equippedSlot`, `equippedWeaponId`, `ads`, `sprinting`, `objective` (latest ObjectivePayload),
+`interacting` (Interact held; written by UI/Objectives).
 Signals: `MatchStateChanged`, `ProfileChanged`, `AmmoChanged(slot, info)`, `KillFeed`,
 `HitConfirm`, `DamageTaken`, `XPGain`, `MatchResults`, `Notify(text, kind)`,
-`DeployedChanged(bool)`, `WeaponChanged(slot, weaponId)`, `AdsChanged(bool)`, `Fired(weaponId)`.
+`DeployedChanged(bool)`, `WeaponChanged(slot, weaponId)`, `AdsChanged(bool)`, `Fired(weaponId)`,
+`ObjectiveChanged(payload)`, `ObjectiveEvent(kind, data)`.
+Spectating (S&D) is signalled by the LocalPlayer attribute `COR_Spectating`, set by UI/Objectives and
+read by CameraController.
 
 ## Remotes (src/shared/Net.luau, payloads in src/shared/Types.luau)
 Client -> server: `Fire(shotId, slot, origin, direction)`, `Reload(slot)`, `Equip(slot)`, `Melee()`,
@@ -87,3 +91,66 @@ The built Model contains:
   `Sight` at the effective `sightOffset`, which ADS aligns to, and an Attachment named `Muzzle`.
 - Burst weapons: `rpm` is the rate inside a burst. The client enforces `burst.delay`; the server
   enforces `rpm` and ammo.
+
+## Modes and objectives (Phase 4)
+
+Mode tuning lives in `src/shared/Config/Modes.luau` (`TDM`, `FFA`, `DOM`, `SND`, `HP`, `KC`). Each map
+supports every mode through its `Objectives` folder (`docs/MAP_CONTRACT.md`).
+
+### Lobby vote
+`MatchState.options` holds `VoteOption`s (map + mode pairings) while in the Lobby. The client votes
+with `VoteMap(optionId)`. `MatchState.votes` is keyed by option id. The server plays the option with
+the most votes; on a tie, the first listed option wins.
+
+### Objective state (server -> client)
+- `ObjectiveState(ObjectivePayload)` is sent whenever the objective changes, at most about 5 per
+  second, and to each player when they join. It is mirrored in `ClientState.objective` and
+  `ClientState.ObjectiveChanged`. `kind = "None"` for TDM and FFA.
+- `ObjectiveEvent(kind, data)` is for one-off announcements, mirrored in `ClientState.ObjectiveEvent`.
+  Team ids are `"Sable"` / `"Talon"`, and user ids are numbers.
+
+| kind | data | When |
+|---|---|---|
+| `ZoneCaptured` | `{ id, team }` | Domination flag captured |
+| `HardpointMoved` | `{ id }` | a new hardpoint goes live (also at first activation) |
+| `BombPickedUp` | `{ userId }` | an attacker takes the bomb |
+| `BombDropped` | `{ position }` | the carrier died or left |
+| `BombPlanted` | `{ site, userId }` | |
+| `BombDefused` | `{ userId }` | |
+| `BombDetonated` | `{ site }` | |
+| `RoundStart` | `{ number, attackers }` | S&D round countdown begins (players are frozen) |
+| `RoundLive` | `{ number }` | S&D round unfreezes |
+| `RoundEnd` | `{ winner, reason }` | reason: `Elimination`, `Detonated`, `Defused`, `Time` |
+| `SidesSwapped` | `{}` | S&D halftime |
+| `TagConfirmed` | `{ userId, victimUserId }` | Kill Confirmed: enemy tag collected (+1 team score) |
+| `TagDenied` | `{ userId, victimUserId }` | Kill Confirmed: friendly tag recovered |
+
+### Server-made world objects
+The server creates these, so every client sees them:
+- `workspace.DogTags`: a Folder of anchored, non-colliding Parts named `Tag`, with attributes `Team`
+  (the victim's team) and `VictimUserId`. The server picks a tag up when a living player's root is
+  within 4 studs. Clients may decorate tags, for example a billboard coloured by friend or foe, but
+  must not move them.
+- `workspace.Bomb`: while dropped or planted, an anchored Part named `Bomb`, with attribute `State`
+  (`"Dropped"` | `"Planted"`). While carried, a small non-colliding part named `CarriedBomb` is welded
+  to the carrier's UpperTorso / Torso.
+
+### Interact (S&D plant and defuse)
+The client sends `Interact(true)` when the interact input is pressed (E, ButtonX, or the touch
+button) and `Interact(false)` on release or when the character dies. The server decides what that
+means:
+- Plant: the bomb carrier, an attacker, standing in a site.
+- Defuse: a defender within 6 studs of the planted bomb.
+The action completes only if the player stays alive, in range and holding for the whole duration.
+Moving more than 3 studs from where they started cancels it. Progress is visible to everyone in
+`ObjectivePayload.bomb.actionUserId / actionKind / actionEndsAt`.
+
+### Free-for-All
+`MatchState.teamMode = false`, `teams = {}`, and players have no team. `scoreLimit` counts one
+player's kills. `PlayerLine.score` is the scoreboard score; the race is decided by `kills`.
+`MatchResults.winnerUserId` is the top player (nil on a tie).
+
+### Respawns in S&D
+There are no respawns during a round: dead players stay dead until the next round's countdown, when
+everyone is respawned frozen at their side's spawns. The client should spectate a living teammate
+while dead and `ClientState.objective.round.live` is true, and show who is alive per team.

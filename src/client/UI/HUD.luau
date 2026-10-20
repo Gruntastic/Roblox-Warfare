@@ -1,7 +1,9 @@
 --!strict
 -- In-match HUD (visible while deployed): health + damage vignette, ammo, crosshair, hit markers,
 -- directional damage indicators, team scores + timer, a heading compass and the scope overlay
--- (shown while aiming a weapon whose def has a built-in `scope`).
+-- (shown while aiming a weapon whose def has a built-in `scope`). Free-for-All shows your kills vs
+-- the leader instead of team scores; in S&D the team scores are round wins and the timer is the
+-- round clock (or the bomb timer once planted).
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
@@ -9,6 +11,7 @@ local StarterGui = game:GetService("StarterGui")
 local Theme = require(script.Parent.Theme)
 local ClientState = require(script.Parent.Parent.ClientState)
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared").Types)
+local ObjectiveRules = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared").Pure.ObjectiveRules)
 
 local HUD = {}
 
@@ -262,6 +265,36 @@ local function refreshScores()
 		return
 	end
 	scoresHolder.Visible = true
+	local limit = math.max(ms.scoreLimit, 1)
+	if Theme.isFFA(ms) then
+		-- Free-for-All: your kills vs the leader's (or the runner-up's while you lead).
+		local myKills, rivalName, rivalKills, iLead = ObjectiveRules.ffaRace(ms.players, localPlayer.UserId)
+		leftName.Text = "YOU"
+		leftName.TextColor3 = C.Accent
+		leftScore.Text = tostring(myKills)
+		leftFill.BackgroundColor3 = C.Accent
+		leftStripe.BackgroundColor3 = C.Accent
+		Theme.tween(leftFill, Theme.Tween.Normal, { Size = UDim2.fromScale(math.clamp(myKills / limit, 0, 1), 1) })
+		local rivalColor = C.TextDim
+		if rivalName then
+			rightName.Text = (if iLead then "2ND  " else "LEADER  ") .. string.upper(rivalName)
+			rightScore.Text = tostring(rivalKills)
+		else
+			rightName.Text = "NO RIVALS"
+			rightScore.Text = ""
+		end
+		rightName.TextColor3 = rivalColor
+		rightFill.BackgroundColor3 = rivalColor
+		rightStripe.BackgroundColor3 = rivalColor
+		Theme.tween(rightFill, Theme.Tween.Normal, { Size = UDim2.fromScale(math.clamp(rivalKills / limit, 0, 1), 1) })
+		limitLabel.Text = if ms.scoreLimit > 0 then "FIRST TO " .. tostring(ms.scoreLimit) else ""
+		return
+	end
+	-- Search and Destroy: team scores are round wins (scoreLimit = rounds to win). Prefer the live
+	-- objective round state when present so the bar updates the instant a round ends.
+	local snd = Theme.isSnD()
+	local obj = ClientState.objective
+	local roundWins = if snd and obj and obj.round and type(obj.round.wins) == "table" then obj.round.wins else nil
 	local myTeam = Theme.localTeam()
 	local mine: Types.TeamScore? = nil
 	local other: Types.TeamScore? = nil
@@ -276,16 +309,16 @@ local function refreshScores()
 		mine = ms.teams[1]
 		other = ms.teams[2]
 	end
-	local limit = math.max(ms.scoreLimit, 1)
 	local function apply(t: Types.TeamScore?, nameL: TextLabel, scoreL: TextLabel, fill: Frame, stripe: Frame)
 		if t then
 			local color = Theme.teamColor(t.id)
+			local score = if roundWins and type(roundWins[t.id]) == "number" then roundWins[t.id] else t.score
 			nameL.Text = string.upper(t.displayName)
 			nameL.TextColor3 = color
-			scoreL.Text = tostring(t.score)
+			scoreL.Text = tostring(score)
 			fill.BackgroundColor3 = color
 			stripe.BackgroundColor3 = color
-			Theme.tween(fill, Theme.Tween.Normal, { Size = UDim2.fromScale(math.clamp(t.score / limit, 0, 1), 1) })
+			Theme.tween(fill, Theme.Tween.Normal, { Size = UDim2.fromScale(math.clamp(score / limit, 0, 1), 1) })
 		else
 			nameL.Text = ""
 			scoreL.Text = ""
@@ -294,7 +327,13 @@ local function refreshScores()
 	end
 	apply(mine, leftName, leftScore, leftFill, leftStripe)
 	apply(other, rightName, rightScore, rightFill, rightStripe)
-	limitLabel.Text = if ms.scoreLimit > 0 then "FIRST TO " .. tostring(ms.scoreLimit) else ""
+	if ms.scoreLimit <= 0 then
+		limitLabel.Text = ""
+	elseif snd then
+		limitLabel.Text = "FIRST TO " .. tostring(ms.scoreLimit) .. (if ms.scoreLimit == 1 then " ROUND" else " ROUNDS")
+	else
+		limitLabel.Text = "FIRST TO " .. tostring(ms.scoreLimit)
+	end
 end
 
 ---------------------------------------------------------------------------------------------
@@ -1088,6 +1127,12 @@ function HUD.init()
 			refreshScores()
 		end
 	end)
+	ClientState.ObjectiveChanged:Connect(function()
+		-- S&D round wins come from the objective state
+		if gui.Enabled and Theme.isSnD() then
+			refreshScores()
+		end
+	end)
 	ClientState.AmmoChanged:Connect(function(slot: string)
 		if slot == ClientState.equippedSlot then
 			refreshAmmo()
@@ -1137,12 +1182,23 @@ function HUD.start()
 		if gui.Enabled then
 			local ms = ClientState.matchState
 			local text = "--:--"
-			if ms and ms.phaseEndsAt > 0 then
+			local danger = false
+			local obj = ClientState.objective
+			local round = if obj then obj.round else nil
+			local bomb = if obj then obj.bomb else nil
+			if Theme.isSnD() and bomb and bomb.state == "Planted" and type(bomb.explodesAt) == "number" then
+				-- S&D: the detonation countdown replaces the round clock once the bomb is planted
+				text = Theme.formatTime(bomb.explodesAt - Theme.serverNow())
+				danger = true
+			elseif Theme.isSnD() and round and type(round.endsAt) == "number" and round.endsAt > 0 then
+				text = Theme.formatTime(round.endsAt - Theme.serverNow())
+			elseif ms and ms.phaseEndsAt > 0 then
 				text = Theme.formatTime(ms.phaseEndsAt - Theme.serverNow())
 			end
 			if text ~= lastText then
 				lastText = text
 				timerLabel.Text = text
+				timerLabel.TextColor3 = if danger then C.Danger else C.Text
 			end
 		end
 		task.wait(0.25)

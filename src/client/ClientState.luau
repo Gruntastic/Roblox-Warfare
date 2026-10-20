@@ -21,6 +21,8 @@ local ClientState = {
 	equippedStats = nil :: any, -- WeaponStats.Effective of the equipped weapon (attachments applied)
 	ads = false,
 	sprinting = false,
+	objective = nil :: Types.ObjectivePayload?, -- latest ObjectiveState (nil until the first one arrives)
+	interacting = false, -- Interact (plant / defuse) is held
 
 	MatchStateChanged = Signal.new() :: Signal.Signal<Types.MatchStatePayload>,
 	ProfileChanged = Signal.new() :: Signal.Signal<Types.ProfileSummary>,
@@ -35,6 +37,8 @@ local ClientState = {
 	WeaponChanged = Signal.new() :: Signal.Signal<string, string?>, -- slot, weaponId
 	AdsChanged = Signal.new() :: Signal.Signal<boolean>,
 	Fired = Signal.new() :: Signal.Signal<string>, -- local shot fired (weaponId), for crosshair bloom
+	ObjectiveChanged = Signal.new() :: Signal.Signal<Types.ObjectivePayload>,
+	ObjectiveEvent = Signal.new() :: Signal.Signal<string, { [string]: any }>, -- kind, data (see docs/CONTRACTS.md)
 }
 
 local function onCharacter(character: Model)
@@ -78,6 +82,13 @@ function ClientState.init()
 	end)
 	Net.event("Notify").OnClientEvent:Connect(function(text, kind)
 		ClientState.Notify:Fire(text, kind)
+	end)
+	Net.event("ObjectiveState").OnClientEvent:Connect(function(p)
+		ClientState.objective = p
+		ClientState.ObjectiveChanged:Fire(p)
+	end)
+	Net.event("ObjectiveEvent").OnClientEvent:Connect(function(kind, data)
+		ClientState.ObjectiveEvent:Fire(kind, data or {})
 	end)
 
 	local player = Players.LocalPlayer

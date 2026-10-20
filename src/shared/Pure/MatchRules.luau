@@ -32,6 +32,32 @@ function MatchRules.isOver(scoreLimit: number, scores: { [string]: number }, now
 end
 
 -- Per-player scoreboard points.
-MatchRules.POINTS = { Kill = 100, Assist = 50, Headshot = 20 }
+MatchRules.POINTS = {
+	Kill = 100,
+	Assist = 50,
+	Headshot = 20,
+	Capture = 200,
+	HardpointHold = 50, -- every 5 s alone in the live hardpoint
+	TagConfirm = 50,
+	TagDeny = 50,
+	Plant = 300,
+	Defuse = 300,
+}
+
+-- Free-for-All: the player id with the most kills, or nil on a tie (or nobody).
+function MatchRules.ffaWinner(kills: { [number]: number }): number?
+	local best, bestKills, tied = nil, -math.huge, false
+	for id, k in kills do
+		if k > bestKills then
+			best, bestKills, tied = id, k, false
+		elseif k == bestKills then
+			tied = true
+		end
+	end
+	if tied then
+		return nil
+	end
+	return best
+end
 
 return MatchRules

@@ -77,3 +77,10 @@ The zone centre must have a collidable floor under it and no solid part at the c
 - Recommended playable areas: small 240 x 180, medium 360 x 260 (Dustline), large 420 x 300.
 - Under 2500 BaseParts. Prefer large parts over many small ones. No unanchored parts.
 - No scripts, sounds or external asset ids inside the map.
+
+## Clarifications
+- Zones of different kinds may overlap (for example Flag B and Hardpoint 1 on the same bridge):
+  only one mode runs at a time.
+- Hardpoint spacing is checked between consecutive zones in rotation order, including last to first.
+- Sightline and cover rules are only partly automated (horizontal rays, opaque parts). Elevated
+  positions overlooking a spawn must be blocked by design (parapets, walls), and are reviewed in Studio.

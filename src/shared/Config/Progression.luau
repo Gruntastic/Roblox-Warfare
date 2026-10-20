@@ -17,6 +17,14 @@ local Progression = {
 		MatchWin = 300,
 		PerMinutePlayed = 40, -- prorated, capped by MatchMinutesCap
 		MatchMinutesCap = 12,
+		-- objective awards (scoreboard points are in Pure/MatchRules POINTS)
+		Capture = 150, -- Domination flag, each capturer present
+		HardpointHold = 25, -- every 5 s alone in the live hardpoint
+		TagConfirm = 50, -- Kill Confirmed
+		TagDeny = 50,
+		Plant = 200, -- S&D
+		Defuse = 250,
+		RoundWin = 100, -- S&D, every member of the winning side
 	},
 	WeaponXP = {
 		Kill = 100,
@@ -33,6 +41,8 @@ local Progression = {
 	},
 	-- Hard ceiling on combat XP per player per minute of match time (suspicious-rate guard).
 	MaxCombatXPPerMinute = 3500,
+	-- Ceiling on objective XP per player per minute of match time (the modes pace it already).
+	MaxObjectiveXPPerMinute = 1500,
 
 	-- Item unlocks by account level (vertical slice ships with everything at level 1).
 	Unlocks = {

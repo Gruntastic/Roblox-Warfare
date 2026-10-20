@@ -14,6 +14,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ModesConfig = require(Shared.Config.Modes)
 local WeaponsConfig = require(Shared.Config.Weapons)
 local ClientState = require(script.Parent.Parent.ClientState)
+local Types = require(Shared.Types)
 
 local Theme = {}
 
@@ -48,6 +49,10 @@ Theme.PanelTransparency = 0.18
 -- Seconds past the mode respawnDelay after which a dead, still-undeployed player falls back to the
 -- Lobby screen (with its DEPLOY button) instead of the death screen. Shared by Lobby + DeathScreen.
 Theme.RespawnGrace = 2.5
+
+-- Search and Destroy (no respawns): seconds the death screen / death cam stays up before the
+-- spectator view (UI/Objectives) takes over. Shared by DeathScreen + Objectives.
+Theme.SnDDeathHold = 2.5
 
 Theme.Tween = {
 	Fast = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
@@ -409,6 +414,66 @@ function Theme.localTeam(): string?
 		end
 	end
 	return nil
+end
+
+-- Free-for-All match (Phase 4): `teamMode == false`. Older payloads without the field fall back to
+-- "no teams listed".
+function Theme.isFFA(ms: Types.MatchStatePayload?): boolean
+	local state = ms or ClientState.matchState
+	if not state then
+		return false
+	end
+	if state.teamMode ~= nil then
+		return state.teamMode == false
+	end
+	return #(state.teams or {}) == 0
+end
+
+-- The other team's id (two-team modes), or nil when unknown.
+function Theme.otherTeam(teamId: string?): string?
+	if not teamId then
+		return nil
+	end
+	local ms = ClientState.matchState
+	if ms and ms.teams and #ms.teams > 0 then
+		for _, t in ms.teams do
+			if t.id ~= teamId then
+				return t.id
+			end
+		end
+		return nil
+	end
+	for _, t in Theme.Match.Teams do
+		if t.id ~= teamId then
+			return t.id
+		end
+	end
+	return nil
+end
+
+-- Current objective kind, or "None". Guards against a stale ObjectiveState from the previous match
+-- by cross-checking the mode config of the current MatchState.
+function Theme.objectiveKind(): string
+	local obj = ClientState.objective
+	if not obj or type(obj.kind) ~= "string" then
+		return "None"
+	end
+	local ms = ClientState.matchState
+	local mode = if ms then Theme.Modes[ms.modeId] else nil
+	if mode and mode.objective and mode.objective ~= obj.kind then
+		return "None"
+	end
+	return obj.kind
+end
+
+-- Search and Destroy is running (used by the death screen, lobby and HUD).
+function Theme.isSnD(): boolean
+	local ms = ClientState.matchState
+	local mode = if ms then Theme.Modes[ms.modeId] else nil
+	if mode and mode.objective then
+		return mode.objective == "SnD"
+	end
+	return Theme.objectiveKind() == "SnD"
 end
 
 function Theme.weaponName(weaponId: string?): string

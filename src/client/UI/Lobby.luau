@@ -1,5 +1,6 @@
 --!strict
--- Lobby / pre-deploy screen: title, match info + phase timer, operators by team, map vote,
+-- Lobby / pre-deploy screen: title, match info + phase timer, operators by team, next-match vote
+-- (MatchState.options: map + mode cards),
 -- loadout slots + editor (weapon picker grouped by class, unlock gating, weapon levels, Gunsmith
 -- entry points for attachments), account rank + XP bar, DataStore-offline warning and the DEPLOY
 -- button for late joiners / respawn fallback.
@@ -63,7 +64,12 @@ local phaseLabel: TextLabel
 local timerLabel: TextLabel
 local teamsHolder: Frame
 local voteList: Frame
-local voteButtons: { [string]: TextButton } = {}
+local voteButtons: { [string]: TextButton } = {} -- option id -> card
+local voteEmpty: TextLabel
+local voteKey = ""
+local refreshVotes: () -> ()
+local MAX_VOTE_CARDS = 3
+local VOTE_CARD_HEIGHT = 58
 local slotList: Frame
 local editorTitle: TextLabel
 local editorBody: ScrollingFrame
@@ -755,24 +761,141 @@ local function rebuildPlayers()
 	end
 end
 
-local function refreshVotes()
+-- Vote options for the next match. Falls back to "map only" options built from the config map
+-- list when an older server sends no `options`.
+local function voteOptions(ms: Types.MatchStatePayload?): { Types.VoteOption }
+	if not ms then
+		return {}
+	end
+	if type(ms.options) == "table" then
+		return ms.options
+	end
+	local list: { Types.VoteOption } = {}
+	if ms.phase == "Lobby" then
+		for _, mapId in Theme.Match.Maps do
+			table.insert(list, { id = mapId, mapId = mapId, mapName = Theme.mapDisplayName(mapId), modeId = "", modeName = "" })
+		end
+	end
+	return list
+end
+
+local function voteCard(option: Types.VoteOption, order: number): TextButton
+	local button = Theme.button({ Name = "Vote_" .. option.id, Size = UDim2.new(1, 0, 0, VOTE_CARD_HEIGHT), LayoutOrder = order, Parent = voteList })
+	local stroke = Theme.stroke(C.Accent, 2, 1)
+	stroke.Name = "VoteStroke"
+	stroke.Parent = button
+	Theme.new("Frame", {
+		Name = "Marker",
+		BackgroundColor3 = C.Accent,
+		BorderSizePixel = 0,
+		Size = UDim2.new(0, 4, 1, -16),
+		Position = UDim2.fromOffset(0, 8),
+		Visible = false,
+		Parent = button,
+	})
+	Theme.label({
+		Text = string.upper(if (option.mapName or "") ~= "" then option.mapName else Theme.mapDisplayName(option.mapId or "")),
+		Font = Theme.Fonts.Bold,
+		TextSize = 17,
+		Position = UDim2.fromOffset(14, 8),
+		Size = UDim2.new(1, -130, 0, 22),
+		Parent = button,
+	})
+	Theme.label({
+		Text = string.upper(option.modeName or ""),
+		Font = Theme.Fonts.Bold,
+		TextSize = 13,
+		TextColor3 = C.TextDim,
+		Position = UDim2.fromOffset(14, 32),
+		Size = UDim2.new(1, -130, 0, 18),
+		Parent = button,
+	})
+	Theme.label({
+		Name = "Count",
+		Text = "0 VOTES",
+		Font = Theme.Fonts.Bold,
+		TextSize = 14,
+		TextColor3 = C.Accent,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -14, 0, 0),
+		Size = UDim2.new(0, 110, 1, 0),
+		Parent = button,
+	})
+	local optionId = option.id
+	button.Activated:Connect(function()
+		local ms = ClientState.matchState
+		if not ms or ms.phase ~= "Lobby" then
+			return
+		end
+		myVote = optionId
+		fire("VoteMap", optionId)
+		refreshVotes()
+	end)
+	return button
+end
+
+function refreshVotes()
 	local ms = ClientState.matchState
 	local canVote = ms ~= nil and ms.phase == "Lobby"
-	for mapId, button in voteButtons do
-		local count = if ms and ms.votes then (ms.votes[mapId] or 0) else 0
+	local options = voteOptions(ms)
+	-- rebuild the cards only when the offered set changes
+	local key = ""
+	for i, option in options do
+		if i > MAX_VOTE_CARDS then
+			break
+		end
+		key ..= tostring(option.id) .. "|" .. tostring(option.mapName) .. "|" .. tostring(option.modeName) .. ";"
+	end
+	if key ~= voteKey then
+		voteKey = key
+		for _, button in voteButtons do
+			button:Destroy()
+		end
+		table.clear(voteButtons)
+		for i, option in options do
+			if i > MAX_VOTE_CARDS then
+				break
+			end
+			voteButtons[option.id] = voteCard(option, i)
+		end
+	end
+	if myVote and not voteButtons[myVote] then
+		myVote = nil -- a new set of options was offered
+	end
+	voteEmpty.Visible = next(voteButtons) == nil
+	for optionId, button in voteButtons do
+		local count = if ms and ms.votes then (ms.votes[optionId] or 0) else 0
 		local countLabel = button:FindFirstChild("Count") :: TextLabel?
 		if countLabel then
 			countLabel.Text = tostring(count) .. (if count == 1 then " VOTE" else " VOTES")
 		end
-		local mine = myVote == mapId
+		local mine = myVote == optionId
 		Theme.setButtonColor(button, if mine then C.PanelHover else C.PanelLight)
 		local stroke = button:FindFirstChild("VoteStroke") :: UIStroke?
 		if stroke then
 			stroke.Transparency = if mine then 0 else 1
 		end
+		local marker = button:FindFirstChild("Marker") :: Frame?
+		if marker then
+			marker.Visible = mine
+		end
 		button.Active = canVote
 		button.BackgroundTransparency = if canVote then 0.1 else 0.5
 	end
+end
+
+-- The option the server would play right now: most votes, ties to the first listed.
+local function leadingOption(ms: Types.MatchStatePayload): Types.VoteOption?
+	local best: Types.VoteOption? = nil
+	local bestVotes = -1
+	for _, option in voteOptions(ms) do
+		local n = if ms.votes then ms.votes[option.id] or 0 else 0
+		if n > bestVotes then
+			best, bestVotes = option, n
+		end
+	end
+	return best
 end
 
 local function refreshMatchInfo()
@@ -782,8 +905,16 @@ local function refreshMatchInfo()
 		mapLabel.Text = ""
 		return
 	end
-	modeLabel.Text = string.upper(ms.modeName)
-	mapLabel.Text = string.upper(ms.mapName)
+	-- In the lobby show the pairing currently winning the vote (that is the mode that will be
+	-- played); afterwards the chosen mode + map from the match state.
+	local leader = if ms.phase == "Lobby" then leadingOption(ms) else nil
+	if leader and (leader.modeName or "") ~= "" then
+		modeLabel.Text = "NEXT  ·  " .. string.upper(leader.modeName)
+		mapLabel.Text = string.upper(if (leader.mapName or "") ~= "" then leader.mapName else Theme.mapDisplayName(leader.mapId or ""))
+	else
+		modeLabel.Text = string.upper(ms.modeName)
+		mapLabel.Text = string.upper(ms.mapName)
+	end
 end
 
 local function phaseText(ms: Types.MatchStatePayload?): string
@@ -820,6 +951,11 @@ local function shouldShow(): boolean
 		-- respawn arrives within respawnDelay + grace, fall back to the lobby (DEPLOY button).
 		-- Late joiners (never deployed this match) see the lobby straight away.
 		if diedAt then
+			-- [Phase 4] S&D has no respawns: a dead participant spectates (UI/Objectives) until
+			-- the next round respawns them, so the lobby must not take over.
+			if Theme.isSnD() and table.find(ms.inMatch or {}, localPlayer.UserId) then
+				return false
+			end
 			return os.clock() - diedAt > Theme.respawnDelay() + Theme.RespawnGrace
 		end
 		return true
@@ -1112,9 +1248,8 @@ local function buildRightColumn(parent: Instance)
 		Parent = info,
 	})
 
-	-- map vote (bottom)
-	local maps = Theme.Match.Maps
-	local voteHeight = 44 + #maps * 56
+	-- next-match vote (bottom): MatchState.options map + mode cards, rebuilt by refreshVotes()
+	local voteHeight = 44 + MAX_VOTE_CARDS * (VOTE_CARD_HEIGHT + 6)
 	local votePanel = Theme.panel({
 		AnchorPoint = Vector2.new(0, 1),
 		Position = UDim2.fromScale(0, 1),
@@ -1122,49 +1257,23 @@ local function buildRightColumn(parent: Instance)
 		Parent = col,
 	})
 	Theme.padding(12, 14).Parent = votePanel
-	sectionTitle("MAP VOTE", votePanel)
+	sectionTitle("NEXT MATCH VOTE", votePanel)
 	voteList = Theme.new("Frame", {
 		BackgroundTransparency = 1,
 		Position = UDim2.fromOffset(0, 28),
 		Size = UDim2.new(1, 0, 1, -28),
 		Parent = votePanel,
 	}, { Theme.list(Enum.FillDirection.Vertical, 6) })
-	for i, mapId in maps do
-		local button = Theme.button({ Name = mapId, Size = UDim2.new(1, 0, 0, 50), LayoutOrder = i, Parent = voteList })
-		local stroke = Theme.stroke(C.Accent, 2, 1)
-		stroke.Name = "VoteStroke"
-		stroke.Parent = button
-		Theme.label({
-			Text = string.upper(Theme.mapDisplayName(mapId)),
-			Font = Theme.Fonts.Bold,
-			TextSize = 17,
-			Position = UDim2.fromOffset(14, 0),
-			Size = UDim2.new(1, -130, 1, 0),
-			Parent = button,
-		})
-		Theme.label({
-			Name = "Count",
-			Text = "0 VOTES",
-			Font = Theme.Fonts.Bold,
-			TextSize = 14,
-			TextColor3 = C.Accent,
-			TextXAlignment = Enum.TextXAlignment.Right,
-			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, -14, 0, 0),
-			Size = UDim2.new(0, 110, 1, 0),
-			Parent = button,
-		})
-		button.Activated:Connect(function()
-			local ms = ClientState.matchState
-			if not ms or ms.phase ~= "Lobby" then
-				return
-			end
-			myVote = mapId
-			fire("VoteMap", mapId)
-			refreshVotes()
-		end)
-		voteButtons[mapId] = button
-	end
+	voteEmpty = Theme.label({
+		Text = "VOTING OPENS IN THE LOBBY",
+		Font = Theme.Fonts.Medium,
+		TextSize = 15,
+		TextColor3 = C.TextMuted,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Size = UDim2.new(1, 0, 0, VOTE_CARD_HEIGHT),
+		LayoutOrder = 0,
+		Parent = voteList,
+	})
 
 	-- players
 	local playersPanel = Theme.panel({
@@ -1281,6 +1390,9 @@ function Lobby.init()
 		end
 		if ms.phase == "Lobby" and ms.votes and myVote and (ms.votes[myVote] or 0) == 0 then
 			myVote = nil -- votes were reset for a new lobby
+		end
+		if ms.phase ~= "Lobby" then
+			myVote = nil
 		end
 		refreshMatchInfo()
 		refreshVotes()

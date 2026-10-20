@@ -7,6 +7,8 @@ local Notifications = {}
 
 local MAX_VISIBLE = 4
 local DURATION = 3.5
+local STACK_Y = 150
+local OBJECTIVE_STACK_Y = 250
 
 local container: Frame
 local active: { Frame } = {}
@@ -87,11 +89,22 @@ function Notifications.init()
 		Name = "Stack",
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 150),
+		Position = UDim2.new(0.5, 0, 0, STACK_Y),
 		Size = UDim2.fromOffset(560, 4 * 52),
 		Parent = canvas,
 	}, { Theme.list(Enum.FillDirection.Vertical, 8, Enum.HorizontalAlignment.Center) })
 	Theme.mount(gui)
+
+	-- [Phase 4] drop below the objective strip (UI/Objectives) while an objective mode is running
+	local function reposition()
+		local ms = ClientState.matchState
+		local inPlay = ms ~= nil and (ms.phase == "Countdown" or ms.phase == "Playing")
+		local y = if inPlay and Theme.objectiveKind() ~= "None" then OBJECTIVE_STACK_Y else STACK_Y
+		container.Position = UDim2.new(0.5, 0, 0, y)
+	end
+	ClientState.MatchStateChanged:Connect(reposition)
+	ClientState.ObjectiveChanged:Connect(reposition)
+	reposition()
 
 	ClientState.Notify:Connect(function(text: string, kind: string)
 		if typeof(text) == "string" and text ~= "" then

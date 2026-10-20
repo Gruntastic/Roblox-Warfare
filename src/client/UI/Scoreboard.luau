@@ -1,5 +1,6 @@
 --!strict
--- Hold Tab (or tap the touch button) to show the scoreboard: teams side by side, sorted by score.
+-- Hold Tab (or tap the touch button) to show the scoreboard: teams side by side, sorted by score
+-- (a single list sorted by kills in Free-for-All).
 local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
@@ -7,6 +8,7 @@ local UserInputService = game:GetService("UserInputService")
 local Theme = require(script.Parent.Theme)
 local ClientState = require(script.Parent.Parent.ClientState)
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared").Types)
+local ObjectiveRules = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared").Pure.ObjectiveRules)
 
 local Scoreboard = {}
 
@@ -164,10 +166,11 @@ local function rebuild()
 		return
 	end
 	header.Text = string.format("%s  //  %s", string.upper(ms.modeName), string.upper(ms.mapName))
-	if #ms.teams == 0 then
-		local all = table.clone(ms.players)
-		sortLines(all)
-		local col = column("Players", Theme.Colors.Accent, nil, all, 1)
+	if Theme.isFFA(ms) or #ms.teams == 0 then
+		-- Free-for-All: one list, ordered by the kill race (kills, then score).
+		local all = ObjectiveRules.sortFFA(ms.players)
+		local title = if ms.scoreLimit > 0 then string.format("Players  ·  first to %d", ms.scoreLimit) else "Players"
+		local col = column(title, Theme.Colors.Accent, nil, all, 1)
 		col.Size = UDim2.fromScale(1, 1)
 		return
 	end

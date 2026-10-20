@@ -17,6 +17,7 @@ local DataService = require(script.Parent.DataService)
 
 type MatchLedger = {
 	combatXP: number,
+	objectiveXP: number,
 	victimKills: { [number]: number },
 	breakdown: { [string]: number },
 	total: number,
@@ -31,7 +32,7 @@ local lastLoadoutChange: { [Player]: number } = {}
 local function ledger(player: Player): MatchLedger
 	local l = ledgers[player]
 	if not l then
-		l = { combatXP = 0, victimKills = {}, breakdown = {}, total = 0 }
+		l = { combatXP = 0, objectiveXP = 0, victimKills = {}, breakdown = {}, total = 0 }
 		ledgers[player] = l
 	end
 	return l
@@ -197,6 +198,20 @@ function ProgressionService.onAssist(player: Player, weaponId: string?)
 	local acct = XPRules.capCombat(l.combatXP, Progression.AccountXP.Assist, os.clock() - matchStartedAt, Progression.MaxCombatXPPerMinute)
 	l.combatXP += acct
 	grant(player, acct, "Assist", weaponId, Progression.WeaponXP.Assist)
+end
+
+-- Objective awards (captures, hardpoint time, tags, plants, defuses, round wins). Capped per
+-- minute like combat XP so a broken mode can never mint unbounded XP.
+function ProgressionService.onObjective(player: Player, reason: string, amount: number)
+	if amount <= 0 or not DataService.getProfile(player) then
+		return
+	end
+	local l = ledger(player)
+	local acct = XPRules.capCombat(l.objectiveXP, amount, os.clock() - matchStartedAt, Progression.MaxObjectiveXPPerMinute)
+	l.objectiveXP += acct
+	if acct > 0 then
+		grant(player, acct, reason, nil, nil)
+	end
 end
 
 function ProgressionService.onDeath(player: Player)

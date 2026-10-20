@@ -1,6 +1,8 @@
 --!strict
 -- Match lifecycle for a single server: lobby -> countdown -> playing -> results -> lobby.
--- Owns teams, spawns, map loading, scoring and the authoritative MatchState broadcast.
+-- Owns teams, spawns, map loading, scoring and the authoritative MatchState broadcast. Objective
+-- rules live in ../Modes (one module per objective mode); this service hosts them through a
+-- ModeTypes.Context.
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -17,8 +19,21 @@ local DataService = require(script.Parent.DataService)
 local ProgressionService = require(script.Parent.ProgressionService)
 local CombatService = require(script.Parent.CombatService)
 local MovementGuard = require(script.Parent.MovementGuard)
+local ModeTypes = require(script.Parent.Parent.Modes.ModeTypes)
+local Domination = require(script.Parent.Parent.Modes.Domination)
+local Hardpoint = require(script.Parent.Parent.Modes.Hardpoint)
+local KillConfirmed = require(script.Parent.Parent.Modes.KillConfirmed)
+local SearchAndDestroy = require(script.Parent.Parent.Modes.SearchAndDestroy)
 
 local MapsFolder = script.Parent.Parent.Maps
+local MODE_FACTORIES: { [string]: () -> ModeTypes.Impl } = {
+	Domination = Domination.new,
+	Hardpoint = Hardpoint.new,
+	KillConfirmed = KillConfirmed.new,
+	SnD = SearchAndDestroy.new,
+}
+local STEP_INTERVAL = 0.1 -- objective step rate while Playing
+local OBJECTIVE_SEND_INTERVAL = 0.2 -- ObjectiveState broadcast cap
 local Match = ModesConfig.Match
 
 type Line = Types.PlayerLine & { joinedAt: number }
@@ -28,13 +43,20 @@ local MatchService = {
 }
 
 local mode = ModesConfig.Modes[Match.DefaultMode]
+local impl: ModeTypes.Impl? = nil -- objective rules for the current match (nil for TDM / FFA)
+local ctx: ModeTypes.Context
 local phaseEndsAt = 0
 local mapId = Match.Maps[1]
 local mapDef: any = nil
 local mapModel: Model? = nil
 local teamScores: { [string]: number } = {}
 local lines: { [Player]: Line } = {}
-local votes: { [Player]: string } = {}
+local votes: { [Player]: string } = {} -- player -> VoteOption id
+local options: { Types.VoteOption } = {}
+local roundFrozen = false -- S&D pre-round: (re)spawned characters stay frozen
+local objectiveDirty = false
+local lastObjectiveSent = 0
+local lastInteract: { [Player]: number } = {}
 local deployed: { [Player]: boolean } = {}
 local startLevels: { [Player]: number } = {}
 local teamInstances: { [string]: Team } = {}
@@ -51,8 +73,10 @@ end
 
 local function buildState(): Types.MatchStatePayload
 	local teams = {}
-	for _, t in Match.Teams do
-		table.insert(teams, { id = t.id, displayName = t.displayName, score = teamScores[t.id] or 0, color = t.color })
+	if mode.teams then
+		for _, t in Match.Teams do
+			table.insert(teams, { id = t.id, displayName = t.displayName, score = teamScores[t.id] or 0, color = t.color })
+		end
 	end
 	local players = {}
 	for _, player in Players:GetPlayers() do
@@ -74,11 +98,14 @@ local function buildState(): Types.MatchStatePayload
 		end
 	end
 	table.sort(players, function(a, b)
+		if not mode.teams and a.kills ~= b.kills then
+			return a.kills > b.kills -- FFA is a kill race
+		end
 		return a.score > b.score
 	end)
 	local voteCounts = {}
-	for _, id in Match.Maps do
-		voteCounts[id] = 0
+	for _, o in options do
+		voteCounts[o.id] = 0
 	end
 	for _, id in votes do
 		voteCounts[id] = (voteCounts[id] or 0) + 1
@@ -91,12 +118,14 @@ local function buildState(): Types.MatchStatePayload
 		phase = MatchService.phase,
 		modeId = mode.id,
 		modeName = mode.displayName,
+		teamMode = mode.teams,
 		mapId = mapId,
 		mapName = if mapDef then mapDef.displayName else mapId,
 		phaseEndsAt = phaseEndsAt,
 		scoreLimit = mode.scoreLimit,
 		teams = teams,
 		players = players,
+		options = if MatchService.phase == "Lobby" then options else {},
 		votes = voteCounts,
 		inMatch = inMatch,
 	}
@@ -105,6 +134,27 @@ end
 local function broadcast()
 	stateDirty = false
 	Net.event("MatchState"):FireAllClients(buildState())
+end
+
+-- Runs a mode callback; a broken mode logs instead of killing the match loop.
+local function safely(what: string, fn: (...any) -> ...any, ...: any)
+	local ok, err = pcall(fn, ...)
+	if not ok then
+		warn(("[MatchService] mode %s error: %s"):format(what, tostring(err)))
+	end
+end
+
+local function objectivePayload(): Types.ObjectivePayload
+	if impl then
+		return impl.payload(ctx)
+	end
+	return { kind = "None", zones = {} }
+end
+
+local function sendObjective()
+	objectiveDirty = false
+	lastObjectiveSent = os.clock()
+	Net.event("ObjectiveState"):FireAllClients(objectivePayload())
 end
 
 local function setPhase(phase: Types.Phase, endsAt: number)
@@ -178,9 +228,11 @@ local function spawnPoints(team: string?): { BasePart }
 	if not folder then
 		return list
 	end
+	-- S&D swaps which base each team uses
+	local tag = if team and impl and impl.spawnTag then impl.spawnTag(ctx, team) else team
 	for _, p in folder:GetChildren() do
 		if p:IsA("BasePart") then
-			if (mode.teams and p:GetAttribute("Team") == team) or (not mode.teams and p:GetAttribute("FFA")) then
+			if (mode.teams and p:GetAttribute("Team") == tag) or (not mode.teams and p:GetAttribute("FFA")) then
 				table.insert(list, p)
 			end
 		end
@@ -292,7 +344,7 @@ local function spawnPlayer(player: Player)
 	humanoid.WalkSpeed = Match.BaseWalkSpeed
 	character:PivotTo(chooseSpawn(player) + Vector3.new(0, 3, 0))
 	MovementGuard.reset(player)
-	local frozen = MatchService.phase == "Countdown"
+	local frozen = MatchService.phase == "Countdown" or roundFrozen
 	character:SetAttribute("Frozen", frozen)
 	local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if root and frozen then
@@ -300,9 +352,26 @@ local function spawnPlayer(player: Player)
 	end
 	CombatService.onSpawned(player, character, ProgressionService.currentLoadout(player), mode.spawnProtection)
 	stateDirty = true
+	objectiveDirty = true
+end
+
+local function setFrozen(frozen: boolean)
+	roundFrozen = frozen
+	for player in deployed do
+		local character = player.Character
+		if character then
+			character:SetAttribute("Frozen", frozen)
+			local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if root then
+				root.Anchored = frozen
+			end
+		end
+	end
 end
 
 local function onKilled(info: CombatService.KillInfo)
+	local victimCharacter = info.victim.Character
+	local victimRoot = victimCharacter and victimCharacter:FindFirstChild("HumanoidRootPart") :: BasePart?
 	local victimLine = lines[info.victim]
 	if victimLine then
 		victimLine.deaths += 1
@@ -313,7 +382,7 @@ local function onKilled(info: CombatService.KillInfo)
 		local kl = lines[killer]
 		kl.kills += 1
 		kl.score += MatchRules.POINTS.Kill + (if info.headshot then MatchRules.POINTS.Headshot else 0)
-		if kl.team then
+		if kl.team and mode.pointsPerKill > 0 then
 			teamScores[kl.team] = (teamScores[kl.team] or 0) + mode.pointsPerKill
 		end
 		ProgressionService.onKill(killer, info.victim, info.weaponId, info.headshot)
@@ -337,12 +406,26 @@ local function onKilled(info: CombatService.KillInfo)
 		victimUserId = info.victim.UserId,
 	})
 	stateDirty = true
+	if impl and impl.onKilled and MatchService.phase == "Playing" then
+		safely("onKilled", impl.onKilled, ctx, {
+			victim = info.victim,
+			killer = info.killer,
+			weaponId = info.weaponId,
+			headshot = info.headshot,
+			assisters = info.assisters,
+			position = if victimRoot then victimRoot.Position else nil,
+		})
+	end
 
 	local victim = info.victim
 	task.delay(mode.respawnDelay, function()
-		if MatchService.phase == "Playing" and deployed[victim] and victim.Parent and not CombatService.isAlive(victim) then
-			spawnPlayer(victim)
+		if MatchService.phase ~= "Playing" or not deployed[victim] or not victim.Parent or CombatService.isAlive(victim) then
+			return
 		end
+		if impl and impl.allowRespawn and not impl.allowRespawn(ctx, victim) then
+			return
+		end
+		spawnPlayer(victim)
 	end)
 end
 
@@ -356,38 +439,212 @@ local function eligiblePlayers(): { Player }
 	return list
 end
 
-local function tallyVotes(): string
+-- Maps that actually exist on this server, in config order.
+local function availableMaps(): { string }
+	local list = {}
+	for _, id in Match.Maps do
+		if MapsFolder:FindFirstChild(id) then
+			table.insert(list, id)
+		end
+	end
+	return list
+end
+
+local function mapDisplayName(id: string): string
+	local module = MapsFolder:FindFirstChild(id)
+	if module and module:IsA("ModuleScript") then
+		local ok, def = pcall(require, module)
+		if ok and type(def) == "table" and type((def :: any).displayName) == "string" then
+			return (def :: any).displayName
+		end
+	end
+	return id
+end
+
+-- Fresh lobby vote: distinct maps (the one just played last, when there is a choice) paired with
+-- modes taken from the rotation, starting after the mode just played.
+local function makeOptions()
+	table.clear(options)
+	table.clear(votes)
+	local maps = availableMaps()
+	for i = #maps, 2, -1 do
+		local j = math.random(1, i)
+		maps[i], maps[j] = maps[j], maps[i]
+	end
+	if #maps > 1 then
+		local at = table.find(maps, mapId)
+		if at then
+			table.remove(maps, at)
+			table.insert(maps, mapId)
+		end
+	end
+	local rotation = Match.ModeRotation
+	local start = (table.find(rotation, mode.id) or 0) % #rotation
+	for i = 1, math.min(Match.VoteOptions, #maps) do
+		local modeId = rotation[(start + i - 1) % #rotation + 1]
+		local m = ModesConfig.Modes[modeId]
+		table.insert(options, {
+			id = tostring(i),
+			mapId = maps[i],
+			mapName = mapDisplayName(maps[i]),
+			modeId = modeId,
+			modeName = if m then m.displayName else modeId,
+		})
+	end
+	stateDirty = true
+end
+
+-- The most voted option; ties go to the earliest option.
+local function tallyVotes(): Types.VoteOption?
 	local counts = {}
 	for _, id in votes do
 		counts[id] = (counts[id] or 0) + 1
 	end
-	local best, bestCount = mapId, -1
-	for _, id in Match.Maps do
-		local c = counts[id] or 0
+	local best, bestCount = nil, -1
+	for _, o in options do
+		local c = counts[o.id] or 0
 		if c > bestCount then
-			best, bestCount = id, c
+			best, bestCount = o, c
 		end
 	end
 	return best
 end
 
+local function participants(): { Player }
+	local list = {}
+	for player in deployed do
+		if player.Parent then
+			table.insert(list, player)
+		end
+	end
+	return list
+end
+
+local function award(player: Player, points: number, reason: string, xp: number)
+	local line = lines[player]
+	if line and points > 0 then
+		line.score += points
+		stateDirty = true
+	end
+	if xp > 0 then
+		ProgressionService.onObjective(player, reason, xp)
+	end
+end
+
+local function respawnAll()
+	for _, player in participants() do
+		CombatService.despawn(player)
+		task.spawn(spawnPlayer, player)
+	end
+end
+
+local teamIds = {}
+for _, t in Match.Teams do
+	table.insert(teamIds, t.id)
+end
+
+ctx = {
+	mode = mode,
+	map = nil :: any,
+	now = now,
+	teams = teamIds,
+	teamOf = teamOf,
+	participants = participants,
+	isAlive = function(player: Player): boolean
+		return CombatService.isAlive(player)
+	end,
+	root = function(player: Player): BasePart?
+		if not CombatService.isAlive(player) then
+			return nil
+		end
+		local character = player.Character
+		return character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	end,
+	addTeamScore = function(team: string, amount: number)
+		teamScores[team] = (teamScores[team] or 0) + amount
+		stateDirty = true
+	end,
+	setTeamScore = function(team: string, value: number)
+		teamScores[team] = value
+		stateDirty = true
+	end,
+	award = award,
+	event = function(kind: string, data: { [string]: any })
+		Net.event("ObjectiveEvent"):FireAllClients(kind, data)
+	end,
+	changed = function()
+		objectiveDirty = true
+	end,
+	respawnAll = respawnAll,
+	setFrozen = setFrozen,
+	setClock = function(endsAt: number)
+		phaseEndsAt = endsAt
+		stateDirty = true
+	end,
+}
+
+local function stopMode()
+	if impl then
+		safely("stop", impl.stop, ctx)
+		impl = nil
+	end
+	roundFrozen = false
+	objectiveDirty = true
+end
+
+-- FFA kills per userId, for the winner.
+local function ffaKills(): { [number]: number }
+	local kills = {}
+	for _, line in lines do
+		kills[line.userId] = line.kills
+	end
+	return kills
+end
+
+local function matchOver(): boolean
+	if impl and impl.isOver then
+		return impl.isOver(ctx)
+	end
+	if not mode.teams then
+		for _, line in lines do
+			if line.kills >= mode.scoreLimit then
+				return true
+			end
+		end
+		return mode.timeLimit > 0 and phaseEndsAt > 0 and now() >= phaseEndsAt
+	end
+	return (MatchRules.isOver(mode.scoreLimit, teamScores, now(), phaseEndsAt))
+end
+
+local lastStep = os.clock()
+
 local function waitPhase(condition: (() -> boolean)?)
+	lastStep = os.clock()
 	while true do
+		if MatchService.phase == "Playing" and impl then
+			local t = os.clock()
+			safely("step", impl.step, ctx, math.min(t - lastStep, 0.5))
+			lastStep = t
+		end
 		if stateDirty then
 			broadcast()
 		end
-		if phaseEndsAt > 0 and now() >= phaseEndsAt then
+		if objectiveDirty and os.clock() - lastObjectiveSent >= OBJECTIVE_SEND_INTERVAL then
+			sendObjective()
+		end
+		if phaseEndsAt > 0 and now() >= phaseEndsAt and not (MatchService.phase == "Playing" and impl and impl.isOver) then
 			return
 		end
 		if condition and condition() then
 			return
 		end
-		task.wait(0.2)
+		task.wait(STEP_INTERVAL)
 	end
 end
 
 local function runMatch()
-	-- Lobby: wait for enough players, then count down with map voting.
+	-- Lobby: wait for enough players, then count down with map + mode voting.
+	makeOptions()
 	setPhase("Lobby", 0)
 	waitPhase(function()
 		return #eligiblePlayers() >= mode.minPlayersToStart
@@ -411,10 +668,18 @@ local function runMatch()
 	end
 
 	local chosen = tallyVotes()
-	if chosen ~= mapId or not mapModel then
-		loadMap(chosen)
+	-- QA hook, Studio only: workspace attributes QA_Mode / QA_Map force the next match.
+	local forcedMode = if RunService:IsStudio() then workspace:GetAttribute("QA_Mode") else nil
+	local forcedMap = if RunService:IsStudio() then workspace:GetAttribute("QA_Map") else nil
+	local nextMode = if type(forcedMode) == "string" and ModesConfig.Modes[forcedMode] then forcedMode elseif chosen then chosen.modeId else mode.id
+	local nextMap = if type(forcedMap) == "string" and MapsFolder:FindFirstChild(forcedMap) then forcedMap elseif chosen then chosen.mapId else mapId
+	mode = ModesConfig.Modes[nextMode]
+	ctx.mode = mode
+	if nextMap ~= mapId or not mapModel then
+		loadMap(nextMap)
 	end
 	table.clear(votes)
+	table.clear(options)
 	table.clear(teamScores)
 	table.clear(startLevels)
 	for _, t in Match.Teams do
@@ -426,11 +691,18 @@ local function runMatch()
 	ProgressionService.beginMatch()
 
 	-- Countdown: everyone present is deployed, frozen in place.
-	setPhase("Countdown", now() + Match.PreMatchCountdown)
 	local roster = eligiblePlayers()
 	for _, player in roster do
 		assignTeam(player)
 	end
+	local factory = MODE_FACTORIES[mode.objective or "None"]
+	impl = if factory then factory() else nil
+	ctx.map = mapModel :: Model
+	if impl then
+		impl.prepare(ctx)
+	end
+	objectiveDirty = true
+	setPhase("Countdown", now() + Match.PreMatchCountdown)
 	for _, player in roster do
 		task.spawn(spawnPlayer, player)
 	end
@@ -438,7 +710,7 @@ local function runMatch()
 
 	-- Playing
 	local matchStart = now()
-	setPhase("Playing", now() + mode.timeLimit)
+	setPhase("Playing", if mode.timeLimit > 0 then now() + mode.timeLimit else 0)
 	for player in deployed do
 		local character = player.Character
 		if character then
@@ -449,28 +721,42 @@ local function runMatch()
 			end
 		end
 	end
+	if impl then
+		impl.start(ctx)
+	end
 	waitPhase(function()
 		-- QA hook, Studio only: set workspace attribute QA_EndMatch to end the match early.
 		if RunService:IsStudio() and workspace:GetAttribute("QA_EndMatch") then
 			workspace:SetAttribute("QA_EndMatch", nil)
 			return true
 		end
-		return MatchRules.isOver(mode.scoreLimit, teamScores, now(), phaseEndsAt)
+		return matchOver()
 	end)
 
 	-- Results
-	local winner = MatchRules.winner(teamScores)
+	local winner: string? = nil
+	local winnerUserId: number? = nil
+	if not mode.teams then
+		winnerUserId = MatchRules.ffaWinner(ffaKills())
+	elseif impl and impl.winner then
+		winner = impl.winner(ctx)
+	else
+		winner = MatchRules.winner(teamScores)
+	end
+	stopMode()
+	sendObjective()
 	setPhase("Results", now() + Match.ResultsDuration)
 	local state = buildState()
 	for player, line in lines do
 		if player.Parent and deployed[player] then
 			local seconds = now() - math.max(matchStart, line.joinedAt)
-			local won = winner ~= nil and line.team == winner
+			local won = if mode.teams then winner ~= nil and line.team == winner else winnerUserId == player.UserId
 			local xp = ProgressionService.endMatch(player, seconds, won, true)
 			local summary = ProgressionService.summary(player)
 			if xp and summary then
 				Net.event("MatchResults"):FireClient(player, {
 					winnerTeam = winner,
+					winnerUserId = winnerUserId,
 					teams = state.teams,
 					players = state.players,
 					xp = xp,
@@ -517,11 +803,31 @@ function MatchService.init()
 	CombatService.Killed:Connect(onKilled)
 
 	Net.event("VoteMap").OnServerEvent:Connect(function(player, id)
-		if MatchService.phase ~= "Lobby" or type(id) ~= "string" or not table.find(Match.Maps, id) then
+		if MatchService.phase ~= "Lobby" or type(id) ~= "string" then
 			return
 		end
-		votes[player] = id
-		stateDirty = true
+		for _, o in options do
+			if o.id == id then
+				votes[player] = id
+				stateDirty = true
+				return
+			end
+		end
+	end)
+
+	Net.event("Interact").OnServerEvent:Connect(function(player, holding)
+		if type(holding) ~= "boolean" or not deployed[player] or MatchService.phase ~= "Playing" then
+			return
+		end
+		-- presses are rate limited; releases always go through so an action can't get stuck
+		local t = os.clock()
+		if holding and t - (lastInteract[player] or 0) < 0.2 then
+			return
+		end
+		lastInteract[player] = t
+		if impl and impl.onInteract then
+			safely("onInteract", impl.onInteract, ctx, player, holding)
+		end
 	end)
 
 	Net.event("RequestDeploy").OnServerEvent:Connect(function(player)
@@ -530,6 +836,14 @@ function MatchService.init()
 		end
 		if MatchService.phase == "Playing" or MatchService.phase == "Countdown" then
 			ensureLine(player)
+			if impl and impl.allowRespawn and MatchService.phase == "Playing" and not impl.allowRespawn(ctx, player) then
+				-- S&D mid-round: join the match now, spawn at the next round
+				assignTeam(player)
+				deployed[player] = true
+				stateDirty = true
+				objectiveDirty = true
+				return
+			end
 			task.spawn(spawnPlayer, player)
 		end
 	end)
@@ -540,15 +854,21 @@ function MatchService.init()
 		task.delay(1, function()
 			if player.Parent then
 				Net.event("MatchState"):FireClient(player, buildState())
+				Net.event("ObjectiveState"):FireClient(player, objectivePayload())
 			end
 		end)
 	end)
 	Players.PlayerRemoving:Connect(function(player)
+		if impl and impl.onPlayerRemoving then
+			safely("onPlayerRemoving", impl.onPlayerRemoving, ctx, player)
+		end
 		lines[player] = nil
 		votes[player] = nil
 		deployed[player] = nil
 		startLevels[player] = nil
+		lastInteract[player] = nil
 		stateDirty = true
+		objectiveDirty = true
 	end)
 
 	local effects = workspace:FindFirstChild("Effects") or Instance.new("Folder")
@@ -562,6 +882,7 @@ function MatchService.start()
 		local ok, err = pcall(runMatch :: any)
 		if not ok then
 			warn("[MatchService] match loop error: " .. tostring(err))
+			stopMode()
 			for player in deployed do
 				pcall(CombatService.despawn, player)
 			end

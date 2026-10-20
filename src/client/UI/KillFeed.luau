@@ -1,5 +1,6 @@
 --!strict
--- Top-right kill feed: last 5 entries, team-coloured names, fades out after a few seconds.
+-- Top-right kill feed: last 5 entries, team-coloured names (neutral in Free-for-All), fades out
+-- after a few seconds.
 local Players = game:GetService("Players")
 
 local Theme = require(script.Parent.Theme)
@@ -17,7 +18,8 @@ local order = 0
 local localName = Players.LocalPlayer.Name
 
 local function nameColor(name: string, teamId: string?): Color3
-	if teamId then
+	-- Free-for-All has no sides: ignore any team id and use neutral colours (self = accent).
+	if teamId and not Theme.isFFA() then
 		return Theme.teamColor(teamId)
 	end
 	-- FFA / unknown team: highlight self with the accent, everyone else neutral.

@@ -197,7 +197,7 @@ describe("Dustline Terminal map", function()
 	it("has enough spawns per contract", function()
 		expect(#sable).toBeAtLeast(8)
 		expect(#talon).toBeAtLeast(8)
-		expect(#ffa).toBeAtLeast(12)
+		expect(#ffa).toBeAtLeast(16)
 	end)
 
 	it("spawns are invisible, anchored, non-colliding, non-query, non-touch, size 2x1x2", function()
