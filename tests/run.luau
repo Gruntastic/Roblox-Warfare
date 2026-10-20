@@ -1,4 +1,5 @@
--- Runs every tests/specs/*.spec.luau under Lune. Usage: lune run tests/run.luau
+-- Runs every tests/specs/*.spec.luau under Lune. Usage: lune run tests/run.luau [filter]
+-- With a filter, only spec files whose name contains it run (plain substring match).
 local fs = require("@lune/fs")
 local process = require("@lune/process")
 local T = require("./lib/T")
@@ -6,7 +7,8 @@ local T = require("./lib/T")
 local files = fs.readDir("tests/specs")
 table.sort(files)
 for _, name in files do
-	if string.match(name, "%.spec%.luau$") then
+	local filter = process.args[1]
+	if string.match(name, "%.spec%.luau$") and (filter == nil or string.find(name, filter, 1, true)) then
 		print("\n" .. name)
 		local ok, err = pcall(function()
 			return require("./specs/" .. name)

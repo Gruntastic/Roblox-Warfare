@@ -14,7 +14,8 @@ Net.Events = {
 	"Melee", -- () server picks the target in front of the character
 	"SetLoadout", -- (index: number, loadout: { primary: string, secondary: string, primaryAttachments: {[slot]: id}?, secondaryAttachments: {[slot]: id}? })
 	"SelectLoadout", -- (index: number)
-	"VoteMap", -- (mapId: string)
+	"VoteMap", -- (optionId: string) one of MatchStatePayload.options
+	"Interact", -- (holding: boolean) S&D plant / defuse: true on press, false on release
 	"RequestDeploy", -- () ask to join the running match from the lobby
 	-- server -> client
 	"MatchState", -- (MatchStatePayload)
@@ -27,6 +28,8 @@ Net.Events = {
 	"MatchResults", -- (MatchResultsPayload)
 	"Tracer", -- (shooterUserId: number, origin: Vector3, hitPos: Vector3) to everyone except shooter
 	"Notify", -- (text: string, kind: "Info" | "Warning" | "LevelUp")
+	"ObjectiveState", -- (ObjectivePayload)
+	"ObjectiveEvent", -- (kind: string, data: { [string]: any }) one-off banners, see docs/CONTRACTS.md
 }
 
 Net.Functions = {
