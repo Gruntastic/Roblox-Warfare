@@ -8,7 +8,9 @@ table.sort(files)
 for _, name in files do
 	if string.match(name, "%.spec%.luau$") then
 		print("\n" .. name)
-		local ok, err = pcall(require, "./specs/" .. string.gsub(name, "%.luau$", ""))
+		local ok, err = pcall(function()
+			return require("./specs/" .. name)
+		end)
 		if not ok then
 			T.failed += 1
 			table.insert(T.failures, name .. ": " .. tostring(err))

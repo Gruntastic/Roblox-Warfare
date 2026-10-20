@@ -27,8 +27,8 @@ Signals: `MatchStateChanged`, `ProfileChanged`, `AmmoChanged(slot, info)`, `Kill
 `DeployedChanged(bool)`, `WeaponChanged(slot, weaponId)`, `AdsChanged(bool)`, `Fired(weaponId)`.
 
 ## Remotes (src/shared/Net.luau, payloads in src/shared/Types.luau)
-Client -> server: `Fire(shotId, slot, origin, direction)`, `Reload(slot)`, `Equip(slot)`,
-`SetLoadout(index, {primary, secondary})`, `SelectLoadout(index)`, `SetStance(stance)`,
+Client -> server: `Fire(shotId, slot, origin, direction)`, `Reload(slot)`, `Equip(slot)`, `Melee()`,
+`SetLoadout(index, {primary, secondary})`, `SelectLoadout(index)`,
 `VoteMap(mapId)`, `RequestDeploy()`. Function: `GetProfile() -> ProfileSummary`.
 Server -> client: `MatchState`, `KillFeed`, `HitConfirm`, `DamageTaken`, `AmmoState(slot, mag, reserve, reloading)`,
 `XPGain`, `ProfileSync`, `MatchResults`, `Tracer(shooterUserId, origin, hitPos)`, `Notify(text, kind)`.

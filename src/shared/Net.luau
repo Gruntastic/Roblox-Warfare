@@ -11,9 +11,9 @@ Net.Events = {
 	"Fire", -- (shotId: number, slot: Slot, origin: Vector3, direction: Vector3)
 	"Reload", -- (slot: Slot)
 	"Equip", -- (slot: Slot)
+	"Melee", -- () server picks the target in front of the character
 	"SetLoadout", -- (index: number, loadout: { primary: string, secondary: string })
 	"SelectLoadout", -- (index: number)
-	"SetStance", -- (stance: "Stand" | "Crouch" | "Sprint")
 	"VoteMap", -- (mapId: string)
 	"RequestDeploy", -- () ask to join the running match from the lobby
 	-- server -> client

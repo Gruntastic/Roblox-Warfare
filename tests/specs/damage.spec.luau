@@ -1,0 +1,41 @@
+local Loader = require("../lib/Loader")
+local T = require("../lib/T")
+local Damage = Loader.load("src/shared/Pure/Damage.luau")
+local Weapons = Loader.load("src/shared/Config/Weapons.luau")
+local describe, it, expect = T.describe, T.it, T.expect
+
+describe("Damage", function()
+	local vk = Weapons.VK7
+	it("full damage inside close range", function()
+		expect(Damage.atRange(vk.damage, 10)).toBe(vk.damage.close)
+	end)
+	it("linear falloff midway", function()
+		local mid = (vk.damage.closeRange + vk.damage.farRange) / 2
+		expect(Damage.atRange(vk.damage, mid)).toBeNear((vk.damage.close + vk.damage.far) / 2, 1e-6)
+	end)
+	it("far damage beyond far range, zero beyond max range", function()
+		expect(Damage.atRange(vk.damage, vk.damage.farRange + 1)).toBe(vk.damage.far)
+		expect(Damage.atRange(vk.damage, vk.damage.maxRange + 1)).toBe(0)
+	end)
+	it("headshots multiply, limbs reduce", function()
+		expect(Damage.compute(vk, 10, "Head")).toBe(math.floor(vk.damage.close * vk.headMultiplier + 0.5))
+		expect(Damage.compute(vk, 10, "Limb")).toBeLessThan(Damage.compute(vk, 10, "Body"))
+	end)
+	it("TTK targets: VK-7 4 body shots close, P-12 3 close", function()
+		expect(Damage.shotsToKill(vk, 20, "Body", 100)).toBe(4)
+		expect(Damage.shotsToKill(Weapons.P12, 10, "Body", 100)).toBe(3)
+	end)
+	it("every weapon definition is complete and sane", function()
+		for id, def in Weapons do
+			expect(def.id).toBe(id)
+			expect(def.rpm).toBeGreaterThan(0)
+			expect(def.magSize).toBeGreaterThan(0)
+			expect(def.damage.close).toBeAtLeast(def.damage.far)
+			expect(def.damage.farRange).toBeGreaterThan(def.damage.closeRange)
+			expect(def.reloadEmptyTime).toBeAtLeast(def.reloadTime)
+			expect(#def.model).toBeGreaterThan(0)
+			expect(def.slot == "Primary" or def.slot == "Secondary").toBeTruthy()
+		end
+	end)
+end)
+return nil

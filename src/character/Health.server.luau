@@ -1,0 +1,2 @@
+-- Intentionally empty: replaces Roblox's default regeneration script.
+-- Health regeneration is server-authoritative in Server/Services/CombatService.

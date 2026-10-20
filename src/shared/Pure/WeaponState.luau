@@ -10,18 +10,19 @@ export type WeaponState = {
 	reserve: number,
 	reloadEndsAt: number?,
 	reloadTarget: number,
-	nextFireAt: number,
-	burstCredit: number,
+	tokens: number, -- fire-rate token bucket (1 token per shot)
+	tokensAt: number,
 	readyAt: number, -- after equip
 }
 
 local WeaponState = {}
 
--- Network jitter tolerance: a shot may arrive up to this fraction of an interval early,
--- but the accumulated credit can never exceed one full interval.
-WeaponState.JITTER_FRACTION = 0.35
+-- Fire rate uses a token bucket refilled at rpm/60 tokens per second. The bucket holds
+-- 1 + BURST tokens, so network jitter can bunch shots by up to BURST intervals, but the
+-- long-run rate can never exceed the weapon's rpm (at most BURST extra shots ever).
+WeaponState.BURST = 0.5
 
-function WeaponState.new(def: { id: string, rpm: number, fireMode: string, magSize: number, reserveAmmo: number }): WeaponState
+function WeaponState.new(def: { id: string, rpm: number, fireMode: any, magSize: number, reserveAmmo: number }): WeaponState
 	return {
 		defId = def.id,
 		rpm = def.rpm,
@@ -31,8 +32,8 @@ function WeaponState.new(def: { id: string, rpm: number, fireMode: string, magSi
 		reserve = def.reserveAmmo,
 		reloadEndsAt = nil,
 		reloadTarget = 0,
-		nextFireAt = 0,
-		burstCredit = 0,
+		tokens = 1 + WeaponState.BURST,
+		tokensAt = 0,
 		readyAt = 0,
 	}
 end
@@ -63,19 +64,14 @@ function WeaponState.tryFire(s: WeaponState, now: number): (boolean, string?)
 	if s.mag <= 0 then
 		return false, "empty"
 	end
-	local interval = WeaponState.interval(s)
-	if now < s.nextFireAt then
-		local early = s.nextFireAt - now
-		if early > interval * WeaponState.JITTER_FRACTION or s.burstCredit + early > interval then
-			return false, "rate"
-		end
-		s.burstCredit += early
-	else
-		-- paying back credit over time when the player fires slower than the cap
-		s.burstCredit = math.max(0, s.burstCredit - (now - s.nextFireAt))
+	local cap = 1 + WeaponState.BURST
+	s.tokens = math.min(cap, s.tokens + math.max(0, now - s.tokensAt) * s.rpm / 60)
+	s.tokensAt = now
+	if s.tokens < 1 then
+		return false, "rate"
 	end
+	s.tokens -= 1
 	s.mag -= 1
-	s.nextFireAt = math.max(now, s.nextFireAt) + interval
 	return true, nil
 end
 

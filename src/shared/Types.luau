@@ -13,6 +13,8 @@ export type PlayerLine = {
 	deaths: number,
 	assists: number,
 	score: number,
+	level: number?,
+	prestige: number?,
 }
 
 export type MatchStatePayload = {
@@ -36,6 +38,8 @@ export type KillFeedPayload = {
 	victimTeam: string?,
 	weaponId: string?,
 	headshot: boolean,
+	killerUserId: number?,
+	victimUserId: number,
 }
 
 export type HitConfirmPayload = { damage: number, headshot: boolean, killed: boolean }
@@ -56,8 +60,8 @@ export type Loadout = { name: string, primary: string, secondary: string }
 
 export type ProfileSummary = {
 	userId: number,
-	account: LevelProgress & { prestige: number },
-	weapons: { [string]: LevelProgress & { kills: number } },
+	account: { level: number, xp: number, needed: number, prestige: number },
+	weapons: { [string]: { level: number, xp: number, needed: number, kills: number } },
 	stats: { kills: number, deaths: number, matches: number, wins: number },
 	loadouts: { Loadout },
 	selectedLoadout: number,

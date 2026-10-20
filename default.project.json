@@ -3,20 +3,40 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
-      "Shared": { "$path": "src/shared" }
+      "Shared": {
+        "$path": "src/shared"
+      }
     },
     "ServerScriptService": {
-      "Server": { "$path": "src/server" }
+      "Server": {
+        "$path": "src/server"
+      }
     },
     "StarterPlayer": {
       "StarterPlayerScripts": {
-        "Client": { "$path": "src/client" }
+        "Client": {
+          "$path": "src/client"
+        }
       },
-      "$properties": { "CameraMode": "LockFirstPerson", "CharacterWalkSpeed": 16 }
+      "$properties": {
+        "CameraMode": "LockFirstPerson",
+        "CharacterWalkSpeed": 16
+      },
+      "StarterCharacterScripts": {
+        "Health": {
+          "$path": "src/character/Health.server.luau"
+        }
+      }
     },
     "Workspace": {
-      "$properties": { "StreamingEnabled": true }
+      "$properties": {
+        "StreamingEnabled": true
+      }
     },
-    "Players": { "$properties": { "CharacterAutoLoads": false } }
+    "Players": {
+      "$properties": {
+        "CharacterAutoLoads": false
+      }
+    }
   }
 }

@@ -34,7 +34,7 @@ end
 
 function Signal:Fire(...)
 	for _, fn in table.clone(self._handlers) do
-		fn(...)
+		(fn :: any)(...)
 	end
 end
 
