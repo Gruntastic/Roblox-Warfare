@@ -4,17 +4,25 @@
 -- loadout slots + editor (weapon picker grouped by class, unlock gating, weapon levels, Gunsmith
 -- entry points for attachments), account rank + XP bar, DataStore-offline warning and the DEPLOY
 -- button for late joiners / respawn fallback.
+-- Phase 5: the editor has WEAPONS / PERKS / KILLSTREAKS tabs (perks: one per tier; killstreaks: up
+-- to three, costs shown after Hardline), loadout rows list the perks, operator rows show titles and
+-- prestige emblems, the rank badge shows the prestige emblem and a BARRACKS button opens UI/Barracks.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Theme = require(script.Parent.Theme)
 local Gunsmith = require(script.Parent.Gunsmith)
+local Barracks = require(script.Parent.Barracks)
+local Phase5Rules = require(script.Parent.Phase5Rules)
 local ClientState = require(script.Parent.Parent.ClientState)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local Types = require(Shared.Types)
 local WeaponsConfig = require(Shared.Config.Weapons)
 local AttachmentsConfig = require(Shared.Config.Attachments)
+local PerksConfig = require(Shared.Config.Perks)
+local KillstreaksConfig = require(Shared.Config.Killstreaks)
+local StreakRules = require(Shared.Pure.StreakRules)
 
 local Lobby = {}
 
@@ -23,7 +31,14 @@ local localPlayer = Players.LocalPlayer
 
 type WeaponDef = WeaponsConfig.WeaponDef
 type Selection = { [string]: string } -- attachment slot -> attachment id
-type Draft = { primary: string, secondary: string, primaryAttachments: Selection, secondaryAttachments: Selection }
+type Draft = {
+	primary: string,
+	secondary: string,
+	primaryAttachments: Selection,
+	secondaryAttachments: Selection,
+	perks: { string }, -- Phase 5: one per tier
+	streaks: { string }, -- Phase 5: up to three
+}
 type ClassGroup = { class: string, defs: { WeaponDef } }
 
 local CLASS_ORDER = { "AssaultRifle", "SMG", "LMG", "Marksman", "Sniper", "Shotgun", "Pistol", "MachinePistol" }
@@ -51,12 +66,20 @@ local draft: Draft? = nil
 local myVote: string? = nil
 local savePending = false
 local saveToken = 0
+local editorTab = "Weapons" -- "Weapons" | "Perks" | "Streaks"
+local PERK_TIERS = Phase5Rules.perkTiers(PerksConfig.list)
+local TIER_TITLES = { "TIER 1  //  MOVEMENT & TEMPO", "TIER 2  //  WEAPON HANDLING", "TIER 3  //  SURVIVAL & INTEL" }
 
 -- widgets
 local rankNumber: TextLabel
 local rankXpText: TextLabel
 local rankFill: Frame
 local prestigeLabel: TextLabel
+local rankBadge: Frame
+local rankEmblemHolder: Frame
+local barracksButton: TextButton
+local barracksSub: TextLabel
+local tabButtons: { [string]: TextButton } = {}
 local warningBanner: Frame
 local modeLabel: TextLabel
 local mapLabel: TextLabel
@@ -143,12 +166,49 @@ local function countSelection(t: any): number
 	return n
 end
 
+-- Defensive copy of a string list (older payloads may lack perks / streaks).
+local function copyList(t: any): { string }
+	local out: { string } = {}
+	if type(t) == "table" then
+		for _, v in t do
+			if type(v) == "string" then
+				table.insert(out, v)
+			end
+		end
+	end
+	return out
+end
+
+local function sameList(a: { string }, b: { string }): boolean
+	if #a ~= #b then
+		return false
+	end
+	for i, v in a do
+		if b[i] ~= v then
+			return false
+		end
+	end
+	return true
+end
+
+local function loadoutPerks(lo: Types.Loadout): { string }
+	local perks = copyList((lo :: any).perks)
+	return if #perks == 3 then perks else table.clone(PerksConfig.Defaults)
+end
+
+local function loadoutStreaks(lo: Types.Loadout): { string }
+	local raw = (lo :: any).streaks
+	return if type(raw) == "table" then copyList(raw) else table.clone(KillstreaksConfig.Defaults)
+end
+
 local function draftFrom(lo: Types.Loadout): Draft
 	return {
 		primary = lo.primary,
 		secondary = lo.secondary,
 		primaryAttachments = copySelection(lo.primaryAttachments),
 		secondaryAttachments = copySelection(lo.secondaryAttachments),
+		perks = loadoutPerks(lo),
+		streaks = loadoutStreaks(lo),
 	}
 end
 
@@ -157,6 +217,18 @@ local function matchesLoadout(d: Draft, lo: Types.Loadout): boolean
 		and d.secondary == lo.secondary
 		and sameSelection(d.primaryAttachments, copySelection(lo.primaryAttachments))
 		and sameSelection(d.secondaryAttachments, copySelection(lo.secondaryAttachments))
+		and sameList(d.perks, loadoutPerks(lo))
+		and sameList(d.streaks, loadoutStreaks(lo))
+end
+
+local function perkName(id: string): string
+	local def = PerksConfig.byId[id]
+	return if def then def.name else id
+end
+
+local function streakName(id: string): string
+	local def = KillstreaksConfig.byId[id]
+	return if def then def.name else id
 end
 
 -- " +3" when attachments are equipped, "" otherwise.
@@ -242,6 +314,7 @@ local function refreshRank()
 		rankFill.Size = UDim2.fromScale(0, 1)
 		prestigeLabel.Text = ""
 		warningBanner.Visible = false
+		rankEmblemHolder.Visible = false
 		return
 	end
 	local acc = profile.account
@@ -253,8 +326,31 @@ local function refreshRank()
 		rankXpText.Text = "MAX RANK"
 		rankFill.Size = UDim2.fromScale(1, 1)
 	end
-	prestigeLabel.Text = if acc.prestige and acc.prestige > 0 then "PRESTIGE " .. tostring(acc.prestige) else "OPERATOR RANK"
+	prestigeLabel.Text = if acc.prestige and acc.prestige > 0 then "PRESTIGE " .. Phase5Rules.roman(acc.prestige) .. "  ·  RANK" else "OPERATOR RANK"
+	-- Phase 5: the prestige emblem sits on the rank badge once the player has prestiged
+	for _, child in rankEmblemHolder:GetChildren() do
+		child:Destroy()
+	end
+	local emblemId = Phase5Rules.prestigeEmblem(acc.prestige, #Theme.Cosmetics.emblems)
+	local emblem = Theme.emblemBadge(emblemId, 26, { Parent = rankEmblemHolder })
+	rankEmblemHolder.Visible = emblem ~= nil
+	rankBadge.BackgroundColor3 = C.Accent
 	warningBanner.Visible = profile.temporary == true
+	-- Barracks button: today's challenge progress
+	local done, total = 0, 0
+	local ch = (profile :: any).challenges
+	if type(ch) == "table" and type(ch.list) == "table" then
+		for _, c in ch.list do
+			total += 1
+			if c.done then
+				done += 1
+			end
+		end
+	end
+	barracksSub.Text = if total > 0 then string.format("DAILIES %d/%d", done, total) else "CHALLENGES · CAREER"
+	if (profile :: any).canPrestige == true then
+		barracksSub.Text = "PRESTIGE AVAILABLE"
+	end
 end
 
 ---------------------------------------------------------------------------------------------
@@ -312,6 +408,8 @@ local function saveDraft()
 		secondary = d.secondary,
 		primaryAttachments = copySelection(d.primaryAttachments),
 		secondaryAttachments = copySelection(d.secondaryAttachments),
+		perks = table.clone(d.perks),
+		streaks = table.clone(d.streaks),
 	})
 	savePending = true
 	saveToken += 1
@@ -342,7 +440,7 @@ local function rebuildSlots()
 		local active = i == profile.selectedLoadout
 		local button = Theme.button({
 			Name = "Slot" .. i,
-			Size = UDim2.new(1, 0, 0, 72),
+			Size = UDim2.new(1, 0, 0, 90),
 			LayoutOrder = i,
 			Parent = slotList,
 		})
@@ -376,6 +474,20 @@ local function rebuildSlots()
 			TextColor3 = C.TextDim,
 			Position = UDim2.fromOffset(18, 38),
 			Size = UDim2.new(1, -30, 0, 20),
+			Parent = button,
+		})
+		-- Phase 5: perks at a glance
+		local perkNames = {}
+		for _, id in loadoutPerks(lo) do
+			table.insert(perkNames, perkName(id))
+		end
+		Theme.label({
+			Text = string.upper(table.concat(perkNames, " · ")),
+			Font = Theme.Fonts.Bold,
+			TextSize = 11,
+			TextColor3 = C.TextMuted,
+			Position = UDim2.fromOffset(18, 62),
+			Size = UDim2.new(1, -30, 0, 16),
 			Parent = button,
 		})
 		if active then
@@ -600,6 +712,254 @@ local function pickerSection(profile: Types.ProfileSummary, slot: string, title:
 	return order
 end
 
+---------------------------------------------------------------------------------------------
+-- Phase 5: perks + killstreaks
+---------------------------------------------------------------------------------------------
+
+local function hasId(list: any, id: string): boolean
+	return type(list) == "table" and table.find(list, id) ~= nil
+end
+
+local function perkCard(profile: Types.ProfileSummary, def: PerksConfig.PerkDef, order: number, parent: Instance)
+	local d = draft :: Draft
+	local unlocked = hasId(profile.unlockedPerks, def.id)
+	local selected = d.perks[def.tier] == def.id
+	local card = Theme.button({ Name = def.id, LayoutOrder = order, Parent = parent })
+	Theme.setButtonColor(card, if selected then C.PanelHover elseif unlocked then C.PanelLight else C.Locked)
+	card.BackgroundTransparency = if unlocked then 0.1 else 0.45
+	if selected then
+		Theme.stroke(C.Accent, 2, 0).Parent = card
+	end
+	Theme.label({
+		Text = string.upper(def.name),
+		Font = Theme.Fonts.Bold,
+		TextSize = 17,
+		TextColor3 = if unlocked then C.Text else C.TextMuted,
+		Position = UDim2.fromOffset(14, 8),
+		Size = UDim2.new(1, -110, 0, 22),
+		Parent = card,
+	})
+	Theme.label({
+		Text = if selected then "EQUIPPED" elseif unlocked then "" else "LOCKED",
+		Font = Theme.Fonts.Bold,
+		TextSize = 12,
+		TextColor3 = if selected then C.Accent else C.TextMuted,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -12, 0, 10),
+		Size = UDim2.fromOffset(90, 18),
+		Parent = card,
+	})
+	Theme.label({
+		Text = def.description,
+		Font = Theme.Fonts.Regular,
+		TextSize = 13,
+		TextColor3 = if unlocked then C.TextDim else C.TextMuted,
+		TextWrapped = true,
+		TextTruncate = Enum.TextTruncate.None,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Position = UDim2.fromOffset(14, 32),
+		Size = UDim2.new(1, -28, 0, 34),
+		Parent = card,
+	})
+	if not unlocked then
+		Theme.label({
+			Text = "UNLOCKS AT LEVEL " .. tostring(def.unlockLevel),
+			Font = Theme.Fonts.Bold,
+			TextSize = 12,
+			TextColor3 = C.TextDim,
+			Position = UDim2.fromOffset(14, 68),
+			Size = UDim2.new(1, -28, 0, 16),
+			Parent = card,
+		})
+	end
+	card.Activated:Connect(function()
+		local now = draft
+		if not unlocked or not now or now.perks[def.tier] == def.id then
+			return
+		end
+		now.perks[def.tier] = def.id
+		rebuildEditor()
+	end)
+end
+
+local function perksSection(profile: Types.ProfileSummary)
+	local order = 1
+	for tier, defs in PERK_TIERS do
+		sectionTitle(TIER_TITLES[tier] or ("TIER " .. tier), editorBody, order)
+		local grid: Frame = Theme.new("Frame", {
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, -6, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			LayoutOrder = order + 1,
+			Parent = editorBody,
+		}, {
+			Theme.new("UIGridLayout", {
+				CellSize = UDim2.new(0.5, -6, 0, 92),
+				CellPadding = UDim2.fromOffset(10, 10),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
+		for i, def in defs do
+			perkCard(profile, def, i, grid)
+		end
+		order += 2
+	end
+end
+
+local function draftDiscount(): number
+	return if draft then Phase5Rules.streakDiscount(draft.perks, PerksConfig.byId) else 0
+end
+
+local function streakCard(profile: Types.ProfileSummary, def: KillstreaksConfig.StreakDef, order: number, parent: Instance)
+	local d = draft :: Draft
+	local unlocked = hasId(profile.unlockedStreaks, def.id)
+	local slot = table.find(d.streaks, def.id)
+	local selected = slot ~= nil
+	local discount = draftDiscount()
+	local cost = StreakRules.cost(def.id, discount)
+	local card = Theme.button({ Name = def.id, LayoutOrder = order, Parent = parent })
+	Theme.setButtonColor(card, if selected then C.PanelHover elseif unlocked then C.PanelLight else C.Locked)
+	card.BackgroundTransparency = if unlocked then 0.1 else 0.45
+	if selected then
+		Theme.stroke(C.Accent, 2, 0).Parent = card
+	end
+	-- kill cost chip (Hardline: reduced cost in accent with the base cost struck through)
+	local costText = tostring(cost)
+	if cost ~= def.kills then
+		costText = string.format('%d <font size="12" color="%s"><s>%d</s></font>', cost, Theme.hex(C.TextMuted), def.kills)
+	end
+	local chip: Frame = Theme.new("Frame", {
+		BackgroundColor3 = if selected then C.Accent else C.Panel,
+		BackgroundTransparency = if selected then 0 else 0.2,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(10, 10),
+		Size = UDim2.fromOffset(54, 54),
+		Parent = card,
+	}, { Theme.corner(6) })
+	Theme.label({
+		Text = costText,
+		RichText = true,
+		Font = Theme.Fonts.Title,
+		TextSize = 24,
+		TextColor3 = if selected then C.OnAccent elseif cost ~= def.kills then C.Accent else C.Text,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Size = UDim2.new(1, 0, 0, 36),
+		Parent = chip,
+	})
+	Theme.label({
+		Text = "KILLS",
+		Font = Theme.Fonts.Bold,
+		TextSize = 10,
+		TextColor3 = if selected then C.OnAccent else C.TextMuted,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(0, 34),
+		Size = UDim2.new(1, 0, 0, 14),
+		Parent = chip,
+	})
+	Theme.label({
+		Text = string.upper(def.name),
+		Font = Theme.Fonts.Bold,
+		TextSize = 17,
+		TextColor3 = if unlocked then C.Text else C.TextMuted,
+		Position = UDim2.fromOffset(76, 8),
+		Size = UDim2.new(1, -170, 0, 22),
+		Parent = card,
+	})
+	Theme.label({
+		Text = if selected then string.format("KEY %d", 4 + (slot :: number)) elseif unlocked then "" else "UNLOCKS AT LEVEL " .. tostring(def.unlockLevel),
+		Font = Theme.Fonts.Bold,
+		TextSize = 12,
+		TextColor3 = if selected then C.Accent else C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -12, 0, 10),
+		Size = UDim2.fromOffset(160, 18),
+		Parent = card,
+	})
+	Theme.label({
+		Text = def.description,
+		Font = Theme.Fonts.Regular,
+		TextSize = 13,
+		TextColor3 = if unlocked then C.TextDim else C.TextMuted,
+		TextWrapped = true,
+		TextTruncate = Enum.TextTruncate.None,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Position = UDim2.fromOffset(76, 32),
+		Size = UDim2.new(1, -90, 0, 34),
+		Parent = card,
+	})
+	card.Activated:Connect(function()
+		local now = draft
+		if not unlocked or not now then
+			return
+		end
+		local disc = draftDiscount()
+		local list, changed = Phase5Rules.toggleStreak(now.streaks, def.id, KillstreaksConfig.MaxEquipped, function(id: string): number
+			return StreakRules.cost(id, disc)
+		end)
+		if not changed then
+			setSaveStatus(string.format("UP TO %d KILLSTREAKS - REMOVE ONE FIRST", KillstreaksConfig.MaxEquipped), C.Danger)
+			return
+		end
+		now.streaks = list
+		rebuildEditor()
+	end)
+end
+
+local function streaksSection(profile: Types.ProfileSummary)
+	local d = draft :: Draft
+	local discount = draftDiscount()
+	local names = {}
+	for _, id in d.streaks do
+		table.insert(names, string.format("%s (%d)", string.upper(streakName(id)), StreakRules.cost(id, discount)))
+	end
+	sectionTitle(string.format("KILLSTREAKS  //  %d / %d EQUIPPED", #d.streaks, KillstreaksConfig.MaxEquipped), editorBody, 1)
+	Theme.label({
+		Text = (if #names > 0 then table.concat(names, "  ·  ") else "NONE EQUIPPED")
+			.. (if discount > 0 then string.format("   —   HARDLINE: -%d KILL", discount) else ""),
+		Font = Theme.Fonts.Medium,
+		TextSize = 13,
+		TextColor3 = C.TextDim,
+		Size = UDim2.new(1, 0, 0, 18),
+		LayoutOrder = 2,
+		Parent = editorBody,
+	})
+	Theme.label({
+		Text = "Kills in one life earn them. Use with keys 5 / 6 / 7, D-pad up, or tap the tray.",
+		Font = Theme.Fonts.Regular,
+		TextSize = 12,
+		TextColor3 = C.TextMuted,
+		Size = UDim2.new(1, 0, 0, 16),
+		LayoutOrder = 3,
+		Parent = editorBody,
+	})
+	local list: Frame = Theme.new("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, -6, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		LayoutOrder = 4,
+		Parent = editorBody,
+	}, {
+		Theme.new("UIGridLayout", {
+			CellSize = UDim2.new(1, 0, 0, 76),
+			CellPadding = UDim2.fromOffset(8, 8),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	})
+	for i, def in KillstreaksConfig.list do
+		streakCard(profile, def, i, list)
+	end
+end
+
+local function refreshTabs()
+	for name, button in tabButtons do
+		local on = name == editorTab
+		Theme.setButtonColor(button, if on then C.Accent else C.PanelLight)
+		button.TextColor3 = if on then C.OnAccent else C.TextDim
+	end
+end
+
 rebuildEditor = function()
 	local scroll = editorBody.CanvasPosition
 	clearChildren(editorBody)
@@ -626,8 +986,15 @@ rebuildEditor = function()
 		draft = draftFrom(lo)
 	end
 	editorTitle.Text = "EDIT  //  " .. string.upper(lo.name ~= "" and lo.name or ("Loadout " .. tostring(editIndex)))
-	local order = pickerSection(profile, "Primary", "PRIMARY", 1)
-	pickerSection(profile, "Secondary", "SECONDARY", order + 1)
+	refreshTabs()
+	if editorTab == "Perks" then
+		perksSection(profile)
+	elseif editorTab == "Streaks" then
+		streaksSection(profile)
+	else
+		local order = pickerSection(profile, "Primary", "PRIMARY", 1)
+		pickerSection(profile, "Secondary", "SECONDARY", order + 1)
+	end
 	editorBody.CanvasPosition = scroll
 	refreshSummary()
 	refreshSave()
@@ -675,13 +1042,21 @@ local function teamColumn(title: string, color: Color3, lines: { Types.PlayerLin
 			LayoutOrder = i,
 			Parent = list,
 		}, { Theme.corner(3) })
+		-- Phase 5: prestige emblem + equipped title (small caps after the name)
+		local emblem = Theme.emblemBadge(Phase5Rules.lineEmblem(line), 20, {
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 6, 0.5, 0),
+			Parent = rowFrame,
+		})
+		local nameX = if emblem then 32 else 10
 		Theme.label({
-			Text = line.name,
+			Text = Theme.nameWithTitle(line.name, line.title, 10),
+			RichText = true,
 			Font = if isMe then Theme.Fonts.Bold else Theme.Fonts.Medium,
 			TextSize = 15,
 			TextColor3 = if isMe then C.Accent else C.Text,
-			Position = UDim2.fromOffset(10, 0),
-			Size = UDim2.new(1, -70, 1, 0),
+			Position = UDim2.fromOffset(nameX, 0),
+			Size = UDim2.new(1, -70 - nameX + 10, 1, 0),
 			Parent = rowFrame,
 		})
 		local level = if isMe and profile then profile.account.level else line.level
@@ -986,6 +1361,7 @@ local function setShown(show: boolean)
 		rebuildEditor()
 	else
 		Gunsmith.close() -- e.g. the match deploys while the Gunsmith is open
+		Barracks.close()
 		gui.Enabled = false
 	end
 end
@@ -1050,6 +1426,18 @@ local function buildTopBar(parent: Instance)
 		Size = UDim2.fromOffset(56, 56),
 		Parent = rank,
 	}, { Theme.corner(6) })
+	rankBadge = badge
+	-- Phase 5: prestige emblem pinned to the badge's corner (filled by refreshRank)
+	rankEmblemHolder = Theme.new("Frame", {
+		Name = "PrestigeEmblem",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(62, 62),
+		Size = UDim2.fromOffset(26, 26),
+		ZIndex = 3,
+		Visible = false,
+		Parent = rank,
+	})
 	rankNumber = Theme.label({
 		Text = "-",
 		Font = Theme.Fonts.Title,
@@ -1084,6 +1472,49 @@ local function buildTopBar(parent: Instance)
 		Parent = rank,
 	})
 	rankFill = fill
+
+	-- Phase 5: BARRACKS (challenges, career, titles & emblems, prestige)
+	barracksButton = Theme.button({
+		Name = "Barracks",
+		Text = "",
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -396, 0, 6),
+		Size = UDim2.fromOffset(220, 76),
+		Parent = top,
+	})
+	Theme.stroke(C.Accent, 1, 0.35).Parent = barracksButton
+	Theme.label({
+		Text = "BARRACKS",
+		Font = Theme.Fonts.Title,
+		TextSize = 22,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(0, 12),
+		Size = UDim2.new(1, 0, 0, 28),
+		Parent = barracksButton,
+	})
+	barracksSub = Theme.label({
+		Text = "CHALLENGES · CAREER",
+		Font = Theme.Fonts.Bold,
+		TextSize = 12,
+		TextColor3 = C.Accent,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(0, 44),
+		Size = UDim2.new(1, 0, 0, 16),
+		Parent = barracksButton,
+	})
+	barracksButton.Activated:Connect(function()
+		if Gunsmith.isOpen() or Barracks.isOpen() then
+			return
+		end
+		local opened = Barracks.open(nil, function()
+			if shown then
+				mainFrame.Visible = true
+			end
+		end)
+		if opened then
+			mainFrame.Visible = false
+		end
+	end)
 end
 
 local function buildWarning(parent: Instance)
@@ -1183,7 +1614,33 @@ local function buildLoadoutColumns(parent: Instance)
 		end)
 		summaryRows[slot] = { name = name, attachments = attachments, button = button }
 	end
-	local bodyTop = 30 + 2 * (SUMMARY_ROW + 6) + 6
+	local tabsTop = 30 + 2 * (SUMMARY_ROW + 6) + 2
+	local tabRow: Frame = Theme.new("Frame", {
+		Name = "Tabs",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, tabsTop),
+		Size = UDim2.new(1, 0, 0, 38),
+		Parent = editor,
+	}, { Theme.list(Enum.FillDirection.Horizontal, 8) })
+	for i, spec in { { id = "Weapons", text = "WEAPONS" }, { id = "Perks", text = "PERKS" }, { id = "Streaks", text = "KILLSTREAKS" } } do
+		local tab = Theme.button({
+			Name = spec.id,
+			Text = spec.text,
+			TextSize = 15,
+			Size = UDim2.new(1 / 3, -6, 1, 0),
+			LayoutOrder = i,
+			Parent = tabRow,
+		})
+		tabButtons[spec.id] = tab
+		tab.Activated:Connect(function()
+			if editorTab ~= spec.id then
+				editorTab = spec.id
+				editorBody.CanvasPosition = Vector2.zero
+				rebuildEditor()
+			end
+		end)
+	end
+	local bodyTop = tabsTop + 38 + 8
 
 	editorBody = Theme.new("ScrollingFrame", {
 		BackgroundTransparency = 1,
@@ -1378,7 +1835,13 @@ function Lobby.init()
 			return
 		end
 		local lower = string.lower(text)
-		if string.find(lower, "loadout", 1, true) or string.find(lower, "attachment", 1, true) or string.find(lower, "locked", 1, true) then
+		if
+			string.find(lower, "loadout", 1, true)
+			or string.find(lower, "attachment", 1, true)
+			or string.find(lower, "locked", 1, true)
+			or string.find(lower, "perk", 1, true)
+			or string.find(lower, "killstreak", 1, true)
+		then
 			cancelPendingSave()
 			setSaveStatus("NOT SAVED: " .. string.upper(text), C.Danger)
 			refreshSave()

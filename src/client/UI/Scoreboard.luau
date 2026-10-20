@@ -9,6 +9,7 @@ local Theme = require(script.Parent.Theme)
 local ClientState = require(script.Parent.Parent.ClientState)
 local Types = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared").Types)
 local ObjectiveRules = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared").Pure.ObjectiveRules)
+local Phase5Rules = require(script.Parent.Phase5Rules)
 
 local Scoreboard = {}
 
@@ -39,12 +40,29 @@ local function row(line: Types.PlayerLine, index: number, parent: Instance)
 		Parent = parent,
 	}, { Theme.corner(3) })
 	Theme.label({
-		Text = string.format("%d   %s", index, line.name),
+		Text = tostring(index),
+		Font = Theme.Fonts.Bold,
+		TextSize = 16,
+		TextColor3 = Theme.Colors.TextMuted,
+		Position = UDim2.fromOffset(10, 0),
+		Size = UDim2.fromOffset(26, ROW_HEIGHT),
+		Parent = frame,
+	})
+	-- Phase 5: prestige emblem badge + equipped title in small caps after the name
+	local emblem = Theme.emblemBadge(Phase5Rules.lineEmblem(line), 22, {
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 38, 0.5, 0),
+		Parent = frame,
+	})
+	local nameX = if emblem then 68 else 38
+	Theme.label({
+		Text = Theme.nameWithTitle(line.name, line.title, 12),
+		RichText = true,
 		Font = if isMe then Theme.Fonts.Bold else Theme.Fonts.Medium,
 		TextSize = 18,
 		TextColor3 = if isMe then Theme.Colors.Accent else Theme.Colors.Text,
-		Position = UDim2.fromOffset(12, 0),
-		Size = UDim2.new(NAME_WIDTH, -12, 1, 0),
+		Position = UDim2.fromOffset(nameX, 0),
+		Size = UDim2.new(NAME_WIDTH, -nameX, 1, 0),
 		Parent = frame,
 	})
 	for i, col in COLUMNS do
@@ -120,8 +138,8 @@ local function column(title: string, color: Color3, score: number?, lines: { Typ
 		Font = Theme.Fonts.Bold,
 		TextSize = 14,
 		TextColor3 = Theme.Colors.TextMuted,
-		Position = UDim2.fromOffset(12, 0),
-		Size = UDim2.new(NAME_WIDTH, -12, 1, 0),
+		Position = UDim2.fromOffset(38, 0),
+		Size = UDim2.new(NAME_WIDTH, -38, 1, 0),
 		Parent = headerRow,
 	})
 	for i, c in COLUMNS do

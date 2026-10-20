@@ -18,6 +18,7 @@ local ModesConfig = require(Shared.Config.Modes)
 local DataService = require(script.Parent.DataService)
 local ProgressionService = require(script.Parent.ProgressionService)
 local CombatService = require(script.Parent.CombatService)
+local KillstreakService = require(script.Parent.KillstreakService)
 local MovementGuard = require(script.Parent.MovementGuard)
 local ModeTypes = require(script.Parent.Parent.Modes.ModeTypes)
 local Domination = require(script.Parent.Parent.Modes.Domination)
@@ -84,9 +85,12 @@ local function buildState(): Types.MatchStatePayload
 		local line = lines[player] or { userId = player.UserId, name = player.DisplayName, team = nil, kills = 0, deaths = 0, assists = 0, score = 0 }
 		do
 			local profile = DataService.getProfile(player)
+			local cosmetics = if profile then ProgressionService.cosmeticsFor(player) else nil
 			table.insert(players, {
 				level = if profile then profile.account.level else nil,
 				prestige = if profile then profile.account.prestige else nil,
+				title = if cosmetics then cosmetics.title else nil,
+				emblem = if cosmetics then cosmetics.emblem else nil,
 				userId = line.userId,
 				name = line.name,
 				team = line.team,
@@ -350,7 +354,9 @@ local function spawnPlayer(player: Player)
 	if root and frozen then
 		root.Anchored = true
 	end
-	CombatService.onSpawned(player, character, ProgressionService.currentLoadout(player), mode.spawnProtection)
+	local loadout = ProgressionService.currentLoadout(player)
+	CombatService.onSpawned(player, character, loadout, mode.spawnProtection)
+	KillstreakService.onSpawned(player, loadout)
 	stateDirty = true
 	objectiveDirty = true
 end
@@ -581,6 +587,10 @@ ctx = {
 		phaseEndsAt = endsAt
 		stateDirty = true
 	end,
+	objectiveTimeMultiplier = function(player: Player): number
+		local perks = CombatService.perksOf(player)
+		return if perks then math.clamp(perks.objectiveTime, 0.1, 1) else 1
+	end,
 }
 
 local function stopMode()
@@ -689,6 +699,7 @@ local function runMatch()
 		lines[player] = nil
 	end
 	ProgressionService.beginMatch()
+	KillstreakService.beginMatch(mapModel)
 
 	-- Countdown: everyone present is deployed, frozen in place.
 	local roster = eligiblePlayers()
@@ -744,6 +755,7 @@ local function runMatch()
 		winner = MatchRules.winner(teamScores)
 	end
 	stopMode()
+	KillstreakService.endMatch()
 	sendObjective()
 	setPhase("Results", now() + Match.ResultsDuration)
 	local state = buildState()
@@ -801,6 +813,12 @@ function MatchService.init()
 		return ta ~= nil and tb ~= nil and ta ~= tb
 	end
 	CombatService.Killed:Connect(onKilled)
+	KillstreakService.rules.teamOf = teamOf
+	KillstreakService.rules.teamMode = function(): boolean
+		return mode.teams
+	end
+	KillstreakService.rules.teams = teamIds
+	KillstreakService.rules.canUse = MatchService.canFight
 
 	Net.event("VoteMap").OnServerEvent:Connect(function(player, id)
 		if MatchService.phase ~= "Lobby" or type(id) ~= "string" then
@@ -883,6 +901,7 @@ function MatchService.start()
 		if not ok then
 			warn("[MatchService] match loop error: " .. tostring(err))
 			stopMode()
+			pcall(KillstreakService.endMatch)
 			for player in deployed do
 				pcall(CombatService.despawn, player)
 			end

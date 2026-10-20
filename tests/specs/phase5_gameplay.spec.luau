@@ -1,0 +1,120 @@
+local Loader = require("../lib/Loader")
+local T = require("../lib/T")
+local KillstreakMath = Loader.load("src/server/Services/KillstreakMath.luau")
+local Killstreaks = Loader.load("src/shared/Config/Killstreaks.luau")
+local Perks = Loader.load("src/shared/Config/Perks.luau")
+local PerkRules = Loader.load("src/shared/Pure/PerkRules.luau")
+local Modes = Loader.load("src/shared/Config/Modes.luau")
+local describe, it, expect = T.describe, T.it, T.expect
+
+local Vector3 = Loader.roblox.Vector3
+
+describe("KillstreakMath.aimDirection", function()
+	it("normalises finite vectors of length 0.5..1.5 and refuses the rest", function()
+		local d = KillstreakMath.aimDirection(Vector3.new(0, 0, -1.4))
+		expect(d ~= nil).toBe(true)
+		expect(d.Magnitude).toBeNear(1)
+		expect(d.Z).toBeNear(-1)
+		expect(KillstreakMath.aimDirection(Vector3.new(0, 0, 0.4))).toBe(nil)
+		expect(KillstreakMath.aimDirection(Vector3.new(0, 2, 0))).toBe(nil)
+		expect(KillstreakMath.aimDirection(Vector3.new(0 / 0, 1, 0))).toBe(nil)
+		expect(KillstreakMath.aimDirection(Vector3.new(math.huge, 0, 0))).toBe(nil)
+		expect(KillstreakMath.aimDirection("north")).toBe(nil)
+		expect(KillstreakMath.aimDirection(nil)).toBe(nil)
+	end)
+end)
+
+describe("KillstreakMath.falloff", function()
+	it("is full at the centre, linear, and zero at or beyond the radius", function()
+		local p = Killstreaks.byId.MortarBarrage.params
+		expect(KillstreakMath.falloff(p.damage, p.radius, 0)).toBeNear(p.damage)
+		expect(KillstreakMath.falloff(p.damage, p.radius, p.radius / 2)).toBeNear(p.damage / 2)
+		expect(KillstreakMath.falloff(p.damage, p.radius, p.radius)).toBe(0)
+		expect(KillstreakMath.falloff(p.damage, p.radius, p.radius + 5)).toBe(0)
+		expect(KillstreakMath.falloff(100, 0, 0)).toBe(0)
+	end)
+end)
+
+describe("KillstreakMath.scatter", function()
+	it("stays horizontal and inside the scatter disc", function()
+		local aim = Vector3.new(10, 5, -3)
+		for _, u in { { 0, 0 }, { 1, 0 }, { 1, 0.25 }, { 0.5, 0.7 }, { 1, 0.999 } } do
+			local p = KillstreakMath.scatter(aim, 6, u[1], u[2])
+			expect(p.Y).toBeNear(5, 1e-4)
+			expect((p - aim).Magnitude <= 6 + 1e-6).toBe(true)
+		end
+		expect((KillstreakMath.scatter(aim, 6, 1, 0) - aim).Magnitude).toBeNear(6, 1e-4)
+	end)
+end)
+
+describe("KillstreakMath.strikeLine", function()
+	it("starts at the aim point and runs along the horizontal aim, spacing apart", function()
+		local p = Killstreaks.byId.StrikeRun.params
+		local aim = Vector3.new(0, 2, 0)
+		local line = KillstreakMath.strikeLine(aim, Vector3.new(1, -1, 0).Unit, p.blasts, p.spacing)
+		expect(#line).toBe(p.blasts)
+		expect((line[1] - aim).Magnitude).toBeNear(0)
+		for i = 2, #line do
+			expect((line[i] - line[i - 1]).Magnitude).toBeNear(p.spacing, 1e-4)
+			expect(line[i].Y).toBeNear(2)
+			expect(line[i].Z).toBeNear(0)
+		end
+		expect(line[#line].X).toBeNear(p.spacing * (p.blasts - 1), 1e-4)
+	end)
+	it("falls back to a fixed heading when aiming straight down", function()
+		local line = KillstreakMath.strikeLine(Vector3.zero, Vector3.new(0, -1, 0), 3, 10)
+		expect(#line).toBe(3)
+		expect((line[3] - line[1]).Magnitude).toBeNear(20, 1e-4)
+		expect(line[3].Y).toBeNear(0)
+	end)
+end)
+
+describe("KillstreakMath timing and sentry", function()
+	it("impacts land after the warning, interval apart", function()
+		local d = KillstreakMath.impactDelays(3, 1.2, 3)
+		expect(#d).toBe(3)
+		expect(d[1]).toBeNear(3)
+		expect(d[3]).toBeNear(5.4)
+		expect(#KillstreakMath.impactDelays(3, 1, 0)).toBe(0)
+	end)
+	it("Ghost Signal slows sentry lock-on; rpm gives the shot interval", function()
+		local p = Killstreaks.byId.SentryGun.params
+		expect(KillstreakMath.lockOnTime(p, false)).toBe(p.lockOn)
+		expect(KillstreakMath.lockOnTime(p, true)).toBe(p.ghostLockOn)
+		expect(KillstreakMath.fireInterval(p.rpm)).toBeNear(60 / p.rpm)
+	end)
+end)
+
+describe("KillstreakMath sides", function()
+	it("team modes use the team, FFA gives every player their own side", function()
+		expect(KillstreakMath.side(true, "Sable", 5)).toBe("Sable")
+		expect(KillstreakMath.side(true, nil, 5)).toBe(nil)
+		expect(KillstreakMath.side(false, nil, 5)).toBe("#5")
+		expect(KillstreakMath.side(false, nil, 5) ~= KillstreakMath.side(false, nil, 6)).toBe(true)
+	end)
+	it("the victim team is the other team, nil in FFA", function()
+		expect(KillstreakMath.victimTeam({ "Sable", "Talon" }, "Sable")).toBe("Talon")
+		expect(KillstreakMath.victimTeam({ "Sable", "Talon" }, "Talon")).toBe("Sable")
+		expect(KillstreakMath.victimTeam({ "Sable", "Talon" }, nil)).toBe(nil)
+	end)
+end)
+
+describe("Perk tolerances", function()
+	it("the fastest perk sprint stays well inside MovementGuard's limit", function()
+		local best = { 1, 1, 1 }
+		for _, def in Perks.list do
+			best[def.tier] = math.max(best[def.tier], def.effects.moveSpeed or 1)
+		end
+		local perkMax = best[1] * best[2] * best[3]
+		expect(perkMax).toBeNear(PerkRules.combine({ "Fleetfoot", "Quickhands", "SecondWind" }).moveSpeed)
+		local sprint = Modes.Match.SprintSpeed * perkMax
+		local limit = Modes.Match.SprintSpeed * perkMax * 1.6 + 4
+		expect(sprint < limit / 1.5).toBe(true)
+	end)
+	it("Bomb Tech shortens plant and defuse; Blast Guard reduces streak damage", function()
+		local c = PerkRules.combine({ "Fleetfoot", "Quickhands", "BombTech" })
+		expect(Modes.Modes.SND.plantTime * c.objectiveTime).toBeNear(3)
+		local g = PerkRules.combine({ "Fleetfoot", "Quickhands", "BlastGuard" })
+		expect(math.floor(150 * g.streakDamage)).toBe(90)
+	end)
+end)

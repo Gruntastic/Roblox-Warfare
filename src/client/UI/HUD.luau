@@ -4,6 +4,9 @@
 -- (shown while aiming a weapon whose def has a built-in `scope`). Free-for-All shows your kills vs
 -- the leader instead of team scores; in S&D the team scores are round wins and the timer is the
 -- round clock (or the bomb timer once planted).
+-- Phase 5: Recon Drone pings show as red diamonds on the compass (fading out at expiresAt), an enemy
+-- Counter-Recon fills the compass with static, and an enemy Blackout hides everything except
+-- health, crosshair and hit markers (UI/Streaks draws the SIGNAL LOST overlay).
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
@@ -94,6 +97,14 @@ local rightStripe: Frame
 local compassInner: Frame
 local headingLabel: TextLabel
 local lastHeading = -1
+local compassGroup: CanvasGroup
+local compassCaret: Frame
+local PING_POOL = 16
+local pingDiamonds: { Frame } = {}
+local jamStatic: Frame
+local jamBars: { Frame } = {}
+local jamShown = false
+local blackoutShown = false
 
 -- scope overlay
 local SCOPE_IN = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -197,6 +208,8 @@ local function refreshAmmo()
 		centerPrompt.Text = "NO AMMO"
 		centerPrompt.TextColor3 = C.Danger
 		centerPrompt.Visible = true
+	elseif blackoutShown then
+		centerPrompt.Visible = false
 	elseif low and info.reserve > 0 then
 		centerPrompt.Text = if Theme.isTouchOnly() then "RELOAD" else "[R]  RELOAD"
 		centerPrompt.TextColor3 = C.Accent
@@ -264,7 +277,7 @@ local function refreshScores()
 		scoresHolder.Visible = false
 		return
 	end
-	scoresHolder.Visible = true
+	scoresHolder.Visible = not blackoutShown
 	local limit = math.max(ms.scoreLimit, 1)
 	if Theme.isFFA(ms) then
 		-- Free-for-All: your kills vs the leader's (or the runner-up's while you lead).
@@ -481,6 +494,56 @@ local function renderStep(dt: number)
 		headingLabel.Text = tostring(math.floor(heading + 0.5) % 360)
 	end
 
+	-- [Phase 5] compass: Recon Drone pings, Counter-Recon static
+	local ping = ClientState.ping
+	local jammedUntil = ClientState.jammedUntil
+	if ping or jammedUntil > 0 or jamShown then
+		local sNow = workspace:GetServerTimeNow()
+		local jammed = jammedUntil > sNow
+		if jammed ~= jamShown then
+			jamShown = jammed
+			jamStatic.Visible = jammed
+			compassInner.Visible = not jammed
+		end
+		if jammed then
+			for _, bar in jamBars do
+				bar.Position = UDim2.fromScale(math.random(), 0)
+				bar.BackgroundTransparency = 0.3 + math.random() * 0.6
+			end
+		end
+		local used = 0
+		if ping and not jammed and ping.expiresAt > sNow then
+			local alpha = math.clamp((ping.expiresAt - sNow) / 2, 0, 1)
+			local camPosition = cf.Position
+			for _, t in ping.targets do
+				if used >= PING_POOL then
+					break
+				end
+				local pos = t.position
+				if typeof(pos) == "Vector3" then
+					local bearing = math.deg(math.atan2(pos.X - camPosition.X, -(pos.Z - camPosition.Z)))
+					local delta = (bearing - heading + 540) % 360 - 180
+					local x = COMPASS_WIDTH / 2 + delta * COMPASS_PX_PER_DEG
+					if x > 8 and x < COMPASS_WIDTH - 8 then
+						used += 1
+						local d = pingDiamonds[used]
+						d.Position = UDim2.fromOffset(x, 17)
+						d.BackgroundTransparency = 1 - alpha
+						d.Visible = true
+					end
+				end
+			end
+		elseif ping and ping.expiresAt <= sNow then
+			ClientState.ping = nil
+		end
+		for i = used + 1, PING_POOL do
+			local d = pingDiamonds[i]
+			if d.Visible then
+				d.Visible = false
+			end
+		end
+	end
+
 	-- damage direction indicators
 	local right = cf.RightVector
 	local flatLookX, flatLookZ = look.X, look.Z
@@ -503,6 +566,27 @@ local function renderStep(dt: number)
 				ind.bar.BackgroundTransparency = 0.05 + 0.95 * (age / INDICATOR_LIFETIME) ^ 2
 			end
 		end
+	end
+end
+
+-- [Phase 5] enemy Blackout: knock out everything except health, crosshair, hit markers and
+-- damage indicators.
+local function refreshBlackout()
+	local on = ClientState.isBlackedOut()
+	if on == blackoutShown then
+		return
+	end
+	blackoutShown = on
+	compassGroup.Visible = not on
+	compassCaret.Visible = not on
+	headingLabel.Visible = not on
+	scoresHolder.Visible = not on and ClientState.matchState ~= nil
+	ammoPanel.Visible = not on
+	if on then
+		centerPrompt.Visible = false
+	else
+		refreshAmmo()
+		refreshScores()
 	end
 end
 
@@ -949,10 +1033,57 @@ local function buildTop()
 		}),
 		Parent = compass,
 	})
+	compassGroup = compass
 	compassInner = Theme.new("Frame", {
 		BackgroundTransparency = 1,
 		Size = UDim2.fromOffset((COMPASS_MAX_DEG - COMPASS_MIN_DEG) * COMPASS_PX_PER_DEG, 34),
 		Parent = compass,
+	})
+	-- [Phase 5] Recon Drone ping diamonds (pooled; positioned by renderStep)
+	for i = 1, PING_POOL do
+		local d: Frame = Theme.new("Frame", {
+			Name = "Ping",
+			BackgroundColor3 = Color3.fromRGB(255, 60, 48),
+			BorderSizePixel = 0,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.fromOffset(11, 11),
+			Rotation = 45,
+			ZIndex = 3,
+			Visible = false,
+			Parent = compass,
+		}, { Theme.new("UIStroke", { Color = C.Black, Transparency = 0.4, Thickness = 1 }) })
+		pingDiamonds[i] = d
+	end
+	-- [Phase 5] Counter-Recon static
+	jamStatic = Theme.new("Frame", {
+		Name = "Jammed",
+		BackgroundColor3 = Color3.fromRGB(40, 44, 50),
+		BackgroundTransparency = 0.2,
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = 4,
+		Visible = false,
+		Parent = compass,
+	})
+	for i = 1, 24 do
+		local bar: Frame = Theme.new("Frame", {
+			BackgroundColor3 = if i % 3 == 0 then C.Danger else C.TextDim,
+			BorderSizePixel = 0,
+			Size = UDim2.new(0, 2 + (i % 4) * 2, 1, 0),
+			Parent = jamStatic,
+		})
+		jamBars[i] = bar
+	end
+	Theme.label({
+		Text = "COMPASS JAMMED",
+		Font = Theme.Fonts.Bold,
+		TextSize = 14,
+		TextColor3 = C.Danger,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextStrokeTransparency = 0.3,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = 5,
+		Parent = jamStatic,
 	})
 	local cardinals: { [number]: string } = { [0] = "N", [45] = "NE", [90] = "E", [135] = "SE", [180] = "S", [225] = "SW", [270] = "W", [315] = "NW" }
 	for deg = COMPASS_MIN_DEG, COMPASS_MAX_DEG, 15 do
@@ -994,7 +1125,7 @@ local function buildTop()
 		end
 	end
 	-- centre caret + heading readout (outside the clipped group)
-	Theme.new("Frame", {
+	compassCaret = Theme.new("Frame", {
 		BackgroundColor3 = C.Accent,
 		BorderSizePixel = 0,
 		AnchorPoint = Vector2.new(0.5, 0),
@@ -1171,6 +1302,7 @@ function HUD.init()
 	end)
 	ClientState.HitConfirm:Connect(onHit)
 	ClientState.DamageTaken:Connect(onDamage)
+	ClientState.HudEffectsChanged:Connect(refreshBlackout)
 
 	refreshShown()
 end
@@ -1179,6 +1311,7 @@ function HUD.start()
 	-- match timer (4 Hz is plenty; only touches text when the second changes)
 	local lastText = ""
 	while true do
+		refreshBlackout() -- also catches a Blackout whose endsAt passed without an EffectEnded
 		if gui.Enabled then
 			local ms = ClientState.matchState
 			local text = "--:--"

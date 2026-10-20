@@ -127,6 +127,17 @@ function KillFeed.init()
 	ClientState.MatchStateChanged:Connect(function(ms)
 		gui.Enabled = ms.phase ~= "Lobby"
 	end)
+	-- [Phase 5] an enemy Blackout knocks the feed out too
+	local function refreshBlackout()
+		container.Visible = not ClientState.isBlackedOut()
+	end
+	ClientState.HudEffectsChanged:Connect(refreshBlackout)
+	task.spawn(function()
+		while true do
+			task.wait(0.5)
+			refreshBlackout()
+		end
+	end)
 end
 
 return KillFeed

@@ -4,9 +4,19 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ModesConfig = require(ReplicatedStorage.Shared.Config.Modes)
+local Perks = require(ReplicatedStorage.Shared.Config.Perks)
+
+-- The fastest perk combination (one perk per tier), so Fleetfoot-style perks never trip the guard.
+local function maxPerkSpeed(): number
+	local best = { 1, 1, 1 }
+	for _, def in Perks.list do
+		best[def.tier] = math.max(best[def.tier], def.effects.moveSpeed or 1)
+	end
+	return best[1] * best[2] * best[3]
+end
 
 local SAMPLE_INTERVAL = 0.5
-local MAX_HORIZONTAL_SPEED = ModesConfig.Match.SprintSpeed * 1.6 + 4
+local MAX_HORIZONTAL_SPEED = ModesConfig.Match.SprintSpeed * maxPerkSpeed() * 1.6 + 4
 local STRIKES_TO_CORRECT = 2
 
 type Track = { character: Model, lastGood: CFrame, lastPos: Vector3, strikes: number, total: number }

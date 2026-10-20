@@ -13,6 +13,7 @@ local Net = require(Shared.Net)
 local Weapons = require(Shared.Config.Weapons)
 local Attachments = require(Shared.Config.Attachments)
 local WeaponStats = require(Shared.Pure.WeaponStats)
+local PerkRules = require(Shared.Pure.PerkRules)
 local Pellets = require(Shared.Pure.Pellets)
 local WeaponModel = require(Shared.WeaponModel)
 local ClientState = require(script.Parent.Parent.ClientState)
@@ -26,7 +27,7 @@ local SPRINT_OFFSET = CFrame.new(0.55, -1.15, -1.25) * CFrame.Angles(math.rad(-1
 type Slot = "Primary" | "Secondary"
 type Equipped = {
 	slot: Slot,
-	def: WeaponStats.Effective, -- attachments applied; the server holds the authoritative copy
+	def: WeaponStats.Effective, -- attachments and perks applied; the server holds the authoritative copy
 	viewmodel: Model,
 	muzzle: Attachment,
 	sight: Vector3, -- ADS eye point relative to the grip origin
@@ -94,12 +95,25 @@ local function buildArms(model: Model, grip: BasePart)
 	end
 end
 
-local function makeViewmodel(slot: Slot, weaponId: string, selection: { [string]: string }): Equipped?
+-- Perks and camos of the loadout this life was spawned with, read from the latest ProfileSummary
+-- (display and feel only; the server applies the same PerkRules call authoritatively).
+local function spawnLoadoutExtras(): (PerkRules.Combined, { [string]: string })
+	local profile = ClientState.profile
+	if not profile then
+		return PerkRules.combine({}), {}
+	end
+	local loadout = profile.loadouts and profile.loadouts[profile.selectedLoadout]
+	local perks = if loadout and loadout.perks then loadout.perks else {}
+	local camos = if profile.cosmetics and profile.cosmetics.equipped then profile.cosmetics.equipped.camos else nil
+	return PerkRules.combine(perks), camos or {}
+end
+
+local function makeViewmodel(slot: Slot, weaponId: string, selection: { [string]: string }, perks: PerkRules.Combined, camo: string?): Equipped?
 	local def = Weapons[weaponId]
 	if not def then
 		return nil
 	end
-	local model = WeaponModel.build(def, { castShadow = false, attachments = selection })
+	local model = WeaponModel.build(def, { castShadow = false, attachments = selection, camo = camo })
 	model.Name = "Viewmodel_" .. slot
 	local grip = model.PrimaryPart :: BasePart
 	grip.Anchored = true
@@ -111,7 +125,7 @@ local function makeViewmodel(slot: Slot, weaponId: string, selection: { [string]
 	end
 	local muzzle = grip:FindFirstChild("Muzzle") :: Attachment
 	local sight = grip:FindFirstChild("Sight") :: Attachment
-	local stats = WeaponStats.resolve(def, selection, Attachments)
+	local stats = PerkRules.applyToWeapon(WeaponStats.resolve(def, selection, Attachments), perks)
 	return { slot = slot, def = stats, viewmodel = model, muzzle = muzzle, sight = sight.Position }
 end
 
@@ -299,11 +313,12 @@ local function onCharacterReady(char: Model)
 	if character ~= char then
 		return
 	end
+	local perks, camos = spawnLoadoutExtras()
 	if primary then
-		viewmodels.Primary = makeViewmodel("Primary", primary, decodeSelection(char:GetAttribute("PrimaryAttachments"))) :: Equipped
+		viewmodels.Primary = makeViewmodel("Primary", primary, decodeSelection(char:GetAttribute("PrimaryAttachments")), perks, camos[primary]) :: Equipped
 	end
 	if secondary then
-		viewmodels.Secondary = makeViewmodel("Secondary", secondary, decodeSelection(char:GetAttribute("SecondaryAttachments"))) :: Equipped
+		viewmodels.Secondary = makeViewmodel("Secondary", secondary, decodeSelection(char:GetAttribute("SecondaryAttachments")), perks, camos[secondary]) :: Equipped
 	end
 	for slot, e in viewmodels do
 		local ammo = ClientState.ammo[slot]

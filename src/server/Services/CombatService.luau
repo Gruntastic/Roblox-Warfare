@@ -1,6 +1,8 @@
 --!strict
 -- Server-authoritative combat: weapon state, fire-rate/ammo validation, lag-compensated
--- hitscan against rewound hitboxes, damage, assists, regeneration and melee.
+-- hitscan against rewound hitboxes, damage, assists, regeneration and melee. Phase 5: perk
+-- effects (per-slot stats, regen delay, Scavenger, Tracker, Blast Guard), killstreak damage and
+-- bullets that hit destructible killstreak objects (sentries).
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -14,10 +16,13 @@ local Hitbox = require(Shared.Pure.Hitbox)
 local Damage = require(Shared.Pure.Damage)
 local Pellets = require(Shared.Pure.Pellets)
 local WeaponStats = require(Shared.Pure.WeaponStats)
+local PerkRules = require(Shared.Pure.PerkRules)
 local WeaponModel = require(Shared.WeaponModel)
 local Weapons = require(Shared.Config.Weapons)
 local Attachments = require(Shared.Config.Attachments)
 local ModesConfig = require(Shared.Config.Modes)
+local Perks = require(Shared.Config.Perks)
+local ProgressionService = require(script.Parent.ProgressionService)
 
 local Match = ModesConfig.Match
 
@@ -31,6 +36,7 @@ local ASSIST_MIN_DAMAGE = 20
 local MELEE_RANGE = 6.5
 local MELEE_DAMAGE = 135
 local MELEE_COOLDOWN = 0.9
+local STREAK_PREFIX = "Streak:" -- weapon ids of killstreak damage ("Streak:MortarBarrage")
 
 type Slot = "Primary" | "Secondary"
 type Damager = { amount: number, t: number, weaponId: string? }
@@ -39,10 +45,13 @@ export type Loadout = {
 	secondary: string,
 	primaryAttachments: { [string]: string },
 	secondaryAttachments: { [string]: string },
+	perks: { string }?, -- Phase 5: sanitized perk ids (ProgressionService.currentLoadout)
 }
 type CombatState = {
 	weapons: { [string]: WeaponState.WeaponState },
-	stats: { [string]: WeaponStats.Effective }, -- per slot, attachments applied
+	stats: { [string]: WeaponStats.Effective }, -- per slot, attachments and perks applied
+	perks: PerkRules.Combined,
+	camos: { [string]: string }, -- equipped camo per weapon id, read at spawn
 	selections: { [string]: { [string]: string } }, -- per slot attachment selection (for models)
 	equipped: Slot,
 	lastDamaged: number,
@@ -79,6 +88,9 @@ local CombatService = {
 		end,
 	},
 	stats = { shotsAccepted = 0, shotsRejected = 0, hits = 0, rejectReasons = {} :: { [string]: number } },
+	-- Set by KillstreakService: a bullet hit a destructible killstreak object (a child of
+	-- workspace.Streaks). `object` is that child; one call per shot per object.
+	damageObject = nil :: ((attacker: Player, object: Instance, amount: number) -> ())?,
 }
 
 local states: { [Player]: CombatState } = {}
@@ -156,7 +168,7 @@ local function attachWorldModel(player: Player, slot: string)
 	if not torso or not def or not weaponId then
 		return
 	end
-	local model = WeaponModel.build(def, { castShadow = true, attachments = s.selections[slot] })
+	local model = WeaponModel.build(def, { castShadow = true, attachments = s.selections[slot], camo = s.camos[weaponId] })
 	model.Name = "WorldWeapon"
 	local grip = model.PrimaryPart :: BasePart
 	local weld = Instance.new("Weld")
@@ -196,6 +208,18 @@ local function handleDeath(victim: Player, killer: Player?, weaponId: string?, h
 			table.insert(assisters, p)
 		end
 	end
+	-- Scavenger: one magazine of reserve per weapon, capped at the (perk-adjusted) max reserve
+	local ks = if killer and killer ~= victim then states[killer] else nil
+	if killer and ks and not ks.dead and ks.perks.scavenger then
+		for slot, w in ks.weapons do
+			WeaponState.update(w, now)
+			local cap = ks.stats[slot].reserveAmmo
+			if w.reserve < cap then
+				w.reserve = math.min(cap, w.reserve + w.magSize)
+				sendAmmo(killer, slot)
+			end
+		end
+	end
 	CombatService.Killed:Fire({
 		victim = victim,
 		killer = killer,
@@ -219,6 +243,14 @@ function CombatService.applyDamage(victim: Player, attacker: Player?, amount: nu
 	if attacker and attacker ~= victim and not CombatService.rules.isEnemy(attacker, victim) then
 		return false
 	end
+	local byStreak = weaponId ~= nil and string.sub(weaponId, 1, #STREAK_PREFIX) == STREAK_PREFIX
+	if byStreak then
+		-- killstreaks never hurt their owner; Blast Guard reduces what enemy streaks deal
+		if attacker == nil or attacker == victim then
+			return false
+		end
+		amount *= s.perks.streakDamage
+	end
 	amount = math.max(0, math.floor(amount))
 	humanoid.Health = math.max(0, humanoid.Health - amount)
 	s.lastDamaged = now
@@ -233,6 +265,10 @@ function CombatService.applyDamage(victim: Player, attacker: Player?, amount: nu
 	local killed = humanoid.Health <= 0
 	if attacker and attacker ~= victim then
 		Net.event("HitConfirm"):FireClient(attacker, { damage = amount, headshot = headshot, killed = killed })
+		local as = states[attacker]
+		if as and as.perks.tracker and amount > 0 then
+			Net.event("Mark"):FireClient(attacker, victim.UserId, Perks.TRACKER_SECONDS)
+		end
 	end
 	if killed then
 		handleDeath(victim, attacker, weaponId, headshot)
@@ -279,7 +315,7 @@ local function regenerate(dt: number)
 	regenAccumulator = 0
 	local now = os.clock()
 	for player, s in states do
-		if not s.dead and now - s.lastDamaged >= Match.HealthRegenDelay then
+		if not s.dead and now - s.lastDamaged >= Match.HealthRegenDelay * s.perks.regenDelay then
 			local humanoid = aliveHumanoid(player)
 			if humanoid and humanoid.Health < humanoid.MaxHealth then
 				humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + Match.HealthRegenPerSecond * step)
@@ -380,6 +416,8 @@ local function onFire(player: Player, shotId: any, slot: any, origin: any, direc
 	local dirs: { Vector3 } = if pelletCount > 1 then Pellets.directions(CFrame.lookAt(o, o + dir), pelletCount, stats.pelletSpread or 5) else { dir }
 	-- Per-target totals so a shotgun blast is one damage event (one hit marker, one kill credit).
 	local totals: { [Player]: { amount: number, head: number, pellets: number } } = {}
+	local objectTotals: { [Instance]: number } = {} -- killstreak objects (sentries) hit
+	local streaksFolder = workspace:FindFirstChild("Streaks")
 	local tracerEnd = o + dir * maxDist
 	for i, d in ipairs(dirs) do
 		local world = workspace:Raycast(o, d * maxDist, rayParams)
@@ -399,6 +437,12 @@ local function onFire(player: Player, shotId: any, slot: any, origin: any, direc
 			if zone == "Head" then
 				t.head += 1
 			end
+		elseif world and streaksFolder and world.Instance:IsDescendantOf(streaksFolder) then
+			local object: Instance = world.Instance
+			while object.Parent and object.Parent ~= streaksFolder do
+				object = object.Parent
+			end
+			objectTotals[object] = (objectTotals[object] or 0) + Damage.compute(stats, world.Distance, "Body")
 		end
 	end
 
@@ -412,6 +456,12 @@ local function onFire(player: Player, shotId: any, slot: any, origin: any, direc
 	for target, t in totals do
 		CombatService.stats.hits += 1
 		CombatService.applyDamage(target, player, t.amount, stats.id, t.head * 2 >= t.pellets and t.head > 0, o)
+	end
+	local damageObject = CombatService.damageObject
+	if damageObject then
+		for object, amount in objectTotals do
+			damageObject(player, object, amount)
+		end
 	end
 	if w.mag == 0 then
 		sendAmmo(player, slot)
@@ -495,15 +545,19 @@ function CombatService.onSpawned(player: Player, character: Model, loadout: Load
 	humanoid.MaxHealth = Match.MaxHealth
 	humanoid.Health = Match.MaxHealth
 	humanoid.BreakJointsOnDeath = false
-	-- The loadout arrives validated (ProgressionService.currentLoadout); resolve attachments once.
-	local primaryStats = WeaponStats.resolve(Weapons[loadout.primary], loadout.primaryAttachments, Attachments)
-	local secondaryStats = WeaponStats.resolve(Weapons[loadout.secondary], loadout.secondaryAttachments, Attachments)
+	-- The loadout arrives validated (ProgressionService.currentLoadout); resolve attachments and
+	-- perks once. Reload times and reserve ammo from these stats are authoritative.
+	local perks = PerkRules.combine(loadout.perks or {})
+	local primaryStats = PerkRules.applyToWeapon(WeaponStats.resolve(Weapons[loadout.primary], loadout.primaryAttachments, Attachments), perks)
+	local secondaryStats = PerkRules.applyToWeapon(WeaponStats.resolve(Weapons[loadout.secondary], loadout.secondaryAttachments, Attachments), perks)
 	local s: CombatState = {
 		weapons = {
 			Primary = WeaponState.new(primaryStats),
 			Secondary = WeaponState.new(secondaryStats),
 		},
 		stats = { Primary = primaryStats, Secondary = secondaryStats },
+		perks = perks,
+		camos = ProgressionService.cosmeticsFor(player).camos,
 		selections = { Primary = loadout.primaryAttachments, Secondary = loadout.secondaryAttachments },
 		equipped = "Primary",
 		lastDamaged = 0,
@@ -554,6 +608,12 @@ function CombatService.despawn(player: Player)
 		character:Destroy()
 	end
 	refreshRayFilter()
+end
+
+-- Combined perk effects of a spawned player (nil when not spawned).
+function CombatService.perksOf(player: Player): PerkRules.Combined?
+	local s = states[player]
+	return s and s.perks
 end
 
 function CombatService.isAlive(player: Player): boolean

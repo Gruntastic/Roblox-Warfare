@@ -33,6 +33,8 @@ export type Context = {
 	respawnAll: () -> (), -- respawn every participant, frozen, at their side's spawns
 	setFrozen: (frozen: boolean) -> (),
 	setClock: (endsAt: number) -> (), -- the HUD match timer (0 hides it)
+	-- Phase 5: multiplier on a player's S&D plant / defuse time (Bomb Tech perk; 1 = normal)
+	objectiveTimeMultiplier: (player: Player) -> number,
 }
 
 export type Impl = {

@@ -13,6 +13,8 @@ local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ModesConfig = require(Shared.Config.Modes)
 local WeaponsConfig = require(Shared.Config.Weapons)
+local CosmeticsConfig = require(Shared.Config.Cosmetics)
+local KillstreaksConfig = require(Shared.Config.Killstreaks)
 local ClientState = require(script.Parent.Parent.ClientState)
 local Types = require(Shared.Types)
 
@@ -481,7 +483,77 @@ function Theme.weaponName(weaponId: string?): string
 		return ""
 	end
 	local def = WeaponsConfig[weaponId]
-	return if def then def.displayName else weaponId
+	if def then
+		return def.displayName
+	end
+	-- Phase 5: kills made by a killstreak use the weapon id "Streak:<StreakId>"
+	local streakId = string.match(weaponId, "^Streak:(.+)$")
+	local streak = if streakId then KillstreaksConfig.byId[streakId] else nil
+	return if streak then streak.name else weaponId
+end
+
+---------------------------------------------------------------------------------------------
+-- Phase 5: titles and prestige emblems
+---------------------------------------------------------------------------------------------
+
+Theme.Cosmetics = CosmeticsConfig
+Theme.Killstreaks = KillstreaksConfig
+
+-- Display name of a title id in capitals ("" for unknown / missing ids).
+function Theme.titleName(titleId: string?): string
+	local def = if type(titleId) == "string" then CosmeticsConfig.titleById[titleId] else nil
+	return if def then string.upper(def.name) else ""
+end
+
+-- RichText "Name  TITLE" with the title in small muted caps. Escapes the player name.
+function Theme.nameWithTitle(name: string, titleId: string?, titleSize: number?): string
+	local title = Theme.titleName(titleId)
+	local escaped = Theme.escape(name)
+	if title == "" then
+		return escaped
+	end
+	return string.format(
+		'%s  <font size="%d" color="%s">%s</font>',
+		escaped,
+		titleSize or 11,
+		Theme.hex(Theme.Colors.TextMuted),
+		Theme.escape(title)
+	)
+end
+
+-- Square prestige emblem badge (catalogue colour + roman numeral glyph), or nil for unknown ids.
+function Theme.emblemBadge(emblemId: string?, size: number, props: { [string]: any }?): Frame?
+	local def = if type(emblemId) == "string" then CosmeticsConfig.emblemById[emblemId] else nil
+	if not def then
+		return nil
+	end
+	local base: { [string]: any } = {
+		Name = "Emblem",
+		BackgroundColor3 = def.color,
+		BorderSizePixel = 0,
+		Size = UDim2.fromOffset(size, size),
+		Rotation = 0,
+	}
+	if props then
+		for k, v in props do
+			base[k] = v
+		end
+	end
+	local badge: Frame = Theme.new("Frame", base)
+	Theme.corner(math.max(2, math.floor(size * 0.18))).Parent = badge
+	Theme.new("UIStroke", { Color = Theme.Colors.Black, Transparency = 0.5, Thickness = 1, Parent = badge })
+	Theme.label({
+		Name = "Glyph",
+		Text = def.glyph,
+		Font = Theme.Fonts.Title,
+		TextSize = math.max(8, math.floor(size * (if #def.glyph >= 3 then 0.38 else 0.5))),
+		TextColor3 = Theme.Colors.OnAccent,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextTruncate = Enum.TextTruncate.None,
+		Size = UDim2.fromScale(1, 1),
+		Parent = badge,
+	})
+	return badge
 end
 
 -- "DustlineTerminal" -> "Dustline Terminal" (no shared map display-name table on the client).

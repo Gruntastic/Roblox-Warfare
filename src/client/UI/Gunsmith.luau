@@ -5,7 +5,8 @@
 --   Gunsmith.open(weaponId, selection, onDone, onClosed?) -> boolean
 --       Opens the editor on a copy of `selection` (attachment slot -> attachment id). The copy is
 --       sanitized the same way the server does on load (unknown / locked / wrong-slot ids dropped).
---       DONE calls `onDone(newSelection)` and closes; BACK / Backspace (Escape is usually taken by the Roblox menu) / B / auto-close only close.
+--       DONE calls `onDone(newSelection)` and closes; BACK / Backspace / gamepad B / auto-close only close
+--       (Escape is not bound: it opens the Roblox menu).
 --       `onClosed` runs on every close (DONE included). Returns false if the weapon id is unknown.
 --   Gunsmith.close()       closes without applying (no-op when closed).
 --   Gunsmith.isOpen() -> boolean
@@ -14,6 +15,10 @@
 -- It never opens by itself: init() only builds the (disabled) ScreenGui. It closes automatically
 -- when the local player deploys or the match moves to Results. Client-side checks are UX only;
 -- the server re-validates every SetLoadout (WeaponStats.validate).
+--
+-- Phase 5: a CAMO strip under the preview lists every camo for the weapon. Owned ones equip at once
+-- with EquipCosmetic("Camo", camoId, weaponId) (independent of DONE / BACK: camos are cosmetics,
+-- not loadout data); locked ones show their requirement and progress and can be previewed.
 local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -26,6 +31,9 @@ local WeaponsConfig = require(Shared.Config.Weapons)
 local AttachmentsConfig = require(Shared.Config.Attachments)
 local WeaponStats = require(Shared.Pure.WeaponStats)
 local WeaponModel = require(Shared.WeaponModel)
+local Net = require(Shared.Net)
+local CosmeticsConfig = require(Shared.Config.Cosmetics)
+local Phase5Rules = require(script.Parent.Phase5Rules)
 
 type WeaponDef = WeaponsConfig.WeaponDef
 type AttachmentDef = AttachmentsConfig.AttachmentDef
@@ -154,6 +162,10 @@ local selectedSlot: string? = nil
 local onDoneCb: ((Selection) -> ())? = nil
 local onClosedCb: (() -> ())? = nil
 local openConns: { any } = {} -- RBXScriptConnections and Signal connections (both :Disconnect())
+local previewCamo: string? = nil -- camo shown on the preview (equipped, or a locked one being previewed)
+local pendingCamo: string? = nil -- equip sent, ProfileSync not yet seen
+local camoRow: ScrollingFrame
+local camoStatus: TextLabel
 
 -- preview state (numbers only, so the render step allocates no tables)
 local previewModel: Model? = nil
@@ -302,7 +314,7 @@ local function rebuildPreview(snap: boolean)
 	if not d then
 		return
 	end
-	local ok, result = pcall(WeaponModel.build, d, { attachments = selection, castShadow = false })
+	local ok, result = pcall(WeaponModel.build, d, { attachments = selection, castShadow = false, camo = previewCamo })
 	if not ok or typeof(result) ~= "Instance" or not result:IsA("Model") then
 		warn("[Gunsmith] preview build failed: " .. tostring(result))
 		return
@@ -329,6 +341,146 @@ local function renderStep(dt: number)
 	camFocus = camFocus:Lerp(targetFocus, k)
 	local rot = CFrame.fromOrientation(PREVIEW_PITCH, yaw, 0)
 	vpCamera.CFrame = rot + (camFocus + rot.ZVector * camDist)
+end
+
+---------------------------------------------------------------------------------------------
+-- camos (Phase 5)
+---------------------------------------------------------------------------------------------
+
+local function equippedCamo(weaponId: string): string
+	local profile = ClientState.profile
+	local cos = if profile then (profile :: any).cosmetics else nil
+	local camos = if type(cos) == "table" and type(cos.equipped) == "table" then cos.equipped.camos else nil
+	local id = if type(camos) == "table" then camos[weaponId] else nil
+	return if type(id) == "string" then id else CosmeticsConfig.DefaultCamo
+end
+
+local function ownsCamo(weaponId: string, camoId: string): boolean
+	if camoId == CosmeticsConfig.DefaultCamo then
+		return true
+	end
+	local profile = ClientState.profile
+	local cos = if profile then (profile :: any).cosmetics else nil
+	local owned = if type(cos) == "table" and type(cos.owned) == "table" and type(cos.owned.camos) == "table" then cos.owned.camos[weaponId] else nil
+	return type(owned) == "table" and table.find(owned, camoId) ~= nil
+end
+
+local function fireEquip(kind: string, id: string, weaponId: string?)
+	task.spawn(function()
+		local ok, err = pcall(function()
+			Net.event("EquipCosmetic"):FireServer(kind, id, weaponId)
+		end)
+		if not ok then
+			warn("[Gunsmith] EquipCosmetic failed: " .. tostring(err))
+		end
+	end)
+end
+
+local rebuildCamos: () -> ()
+
+local function camoCard(d: WeaponDef, camo: CosmeticsConfig.CamoDef, order: number)
+	local owned = ownsCamo(d.id, camo.id)
+	local equipped = (pendingCamo or equippedCamo(d.id)) == camo.id
+	local previewing = previewCamo == camo.id or (previewCamo == nil and camo.id == CosmeticsConfig.DefaultCamo)
+	local profile = ClientState.profile
+	local wp = if profile and profile.weapons then profile.weapons[d.id] else nil
+	local card = Theme.button({ Name = camo.id, Size = UDim2.fromOffset(148, 78), LayoutOrder = order, Parent = camoRow })
+	Theme.setButtonColor(card, if previewing then C.PanelHover elseif owned then C.PanelLight else C.Locked)
+	card.BackgroundTransparency = if owned then 0.05 else 0.3
+	if equipped then
+		Theme.stroke(C.Accent, 2, 0).Parent = card
+	elseif previewing then
+		Theme.stroke(C.Text, 1, 0.3).Parent = card
+	end
+	-- swatch: main colour with an accent stripe
+	local swatch: Frame = Theme.new("Frame", {
+		BackgroundColor3 = camo.color,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(8, 8),
+		Size = UDim2.fromOffset(28, 28),
+		Parent = card,
+	}, { Theme.corner(4) })
+	Theme.new("Frame", {
+		BackgroundColor3 = camo.accent or camo.color,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.fromScale(0, 1),
+		Size = UDim2.new(1, 0, 0.35, 0),
+		Parent = swatch,
+	})
+	Theme.label({
+		Text = string.upper(camo.name),
+		Font = Theme.Fonts.Bold,
+		TextSize = 13,
+		TextColor3 = if owned then C.Text else C.TextMuted,
+		Position = UDim2.fromOffset(42, 6),
+		Size = UDim2.new(1, -48, 0, 16),
+		Parent = card,
+	})
+	Theme.label({
+		Text = if equipped then "EQUIPPED" elseif owned then "OWNED" else "LOCKED",
+		Font = Theme.Fonts.Bold,
+		TextSize = 10,
+		TextColor3 = if equipped then C.Accent else C.TextMuted,
+		Position = UDim2.fromOffset(42, 22),
+		Size = UDim2.new(1, -48, 0, 14),
+		Parent = card,
+	})
+	if not owned then
+		local req = Phase5Rules.camoRequirement(camo, wp)
+		Theme.label({
+			Text = req.text,
+			Font = Theme.Fonts.Bold,
+			TextSize = 10,
+			TextColor3 = C.TextDim,
+			Position = UDim2.fromOffset(8, 40),
+			Size = UDim2.new(1, -16, 0, 13),
+			Parent = card,
+		})
+		Theme.label({
+			Text = req.progress,
+			Font = Theme.Fonts.Medium,
+			TextSize = 10,
+			TextColor3 = C.TextMuted,
+			Position = UDim2.fromOffset(8, 52),
+			Size = UDim2.new(1, -16, 0, 12),
+			Parent = card,
+		})
+		local _, fill = Theme.bar({ Position = UDim2.new(0, 8, 1, -9), Size = UDim2.new(1, -16, 0, 4), Parent = card })
+		fill.Size = UDim2.fromScale(req.alpha, 1)
+	end
+	card.Activated:Connect(function()
+		local current = def
+		if not isOpenFlag or not current or current.id ~= d.id then
+			return
+		end
+		previewCamo = camo.id
+		if owned then
+			if (pendingCamo or equippedCamo(d.id)) ~= camo.id then
+				pendingCamo = camo.id
+				fireEquip("Camo", camo.id, d.id)
+			end
+			camoStatus.Text = string.upper(camo.name) .. " EQUIPPED"
+			camoStatus.TextColor3 = C.Accent
+		else
+			local req = Phase5Rules.camoRequirement(camo, wp)
+			camoStatus.Text = string.format("PREVIEW  ·  LOCKED: %s  %s", req.text, req.progress)
+			camoStatus.TextColor3 = C.TextDim
+		end
+		rebuildPreview(false)
+		rebuildCamos()
+	end)
+end
+
+rebuildCamos = function()
+	clearGuiChildren(camoRow)
+	local d = def
+	if not d then
+		return
+	end
+	for i, camo in CosmeticsConfig.camos do
+		camoCard(d, camo, i)
+	end
 end
 
 ---------------------------------------------------------------------------------------------
@@ -710,6 +862,10 @@ function Gunsmith.close()
 	end
 	clearGuiChildren(optionsList)
 	clearGuiChildren(slotList)
+	clearGuiChildren(camoRow)
+	previewCamo = nil
+	pendingCamo = nil
+	ClientState.setMenuOpen("Gunsmith", false)
 	local closed = onClosedCb
 	onDoneCb = nil
 	onClosedCb = nil
@@ -761,6 +917,13 @@ function Gunsmith.open(id: string, current: { [string]: string }?, onDone: (Sele
 
 	yaw = math.rad(115)
 	lastDragAt = -math.huge
+	pendingCamo = nil
+	previewCamo = equippedCamo(id)
+	camoStatus.Text = "CAMOS EQUIP INSTANTLY  ·  LOCKED CAMOS CAN BE PREVIEWED"
+	camoStatus.TextColor3 = C.TextMuted
+	camoRow.CanvasPosition = Vector2.zero
+	rebuildCamos()
+	ClientState.setMenuOpen("Gunsmith", true)
 	refreshAll(false)
 	rebuildPreview(true)
 	refreshTimer()
@@ -802,7 +965,12 @@ function Gunsmith.open(id: string, current: { [string]: string }?, onDone: (Sele
 				end
 			end
 			selection = clean
+			-- Phase 5: camo equip confirmed (or refused) by the authoritative profile
+			if pendingCamo and equippedCamo(d.id) == pendingCamo then
+				pendingCamo = nil
+			end
 			refreshAll(changed)
+			rebuildCamos()
 		end
 	end))
 	table.insert(openConns, ClientState.DeployedChanged:Connect(function(deployed: boolean)
@@ -820,7 +988,7 @@ function Gunsmith.open(id: string, current: { [string]: string }?, onDone: (Sele
 			task.defer(Gunsmith.close)
 		end
 		return Enum.ContextActionResult.Sink
-	end, false, Enum.ContextActionPriority.High.Value + 50, Enum.KeyCode.Backspace, Enum.KeyCode.Escape, Enum.KeyCode.ButtonB)
+	end, false, Enum.ContextActionPriority.High.Value + 50, Enum.KeyCode.Backspace, Enum.KeyCode.ButtonB)
 	return true
 end
 
@@ -983,6 +1151,49 @@ local function buildPreview(parent: Instance)
 		Size = UDim2.new(1, -32, 0, 18),
 		Parent = panel,
 	})
+
+	-- Phase 5: CAMO strip along the bottom of the preview
+	local strip: Frame = Theme.new("Frame", {
+		Name = "Camos",
+		BackgroundColor3 = C.Panel,
+		BackgroundTransparency = 0.25,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -36),
+		Size = UDim2.new(1, -24, 0, 132),
+		Parent = panel,
+	}, { Theme.corner(6) })
+	Theme.label({
+		Text = "CAMO",
+		Font = Theme.Fonts.Bold,
+		TextSize = 14,
+		TextColor3 = C.Accent,
+		Position = UDim2.fromOffset(12, 6),
+		Size = UDim2.fromOffset(60, 18),
+		Parent = strip,
+	})
+	camoStatus = Theme.label({
+		Font = Theme.Fonts.Bold,
+		TextSize = 11,
+		TextColor3 = C.TextMuted,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -12, 0, 8),
+		Size = UDim2.new(1, -90, 0, 16),
+		Parent = strip,
+	})
+	camoRow = Theme.new("ScrollingFrame", {
+		Name = "Row",
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(8, 28),
+		Size = UDim2.new(1, -16, 1, -32),
+		CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.X,
+		ScrollingDirection = Enum.ScrollingDirection.X,
+		ScrollBarThickness = 3,
+		Parent = strip,
+	}, { Theme.list(Enum.FillDirection.Horizontal, 8) })
 end
 
 local function buildStats(parent: Instance)

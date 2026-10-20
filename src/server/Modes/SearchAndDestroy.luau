@@ -405,12 +405,12 @@ function SearchAndDestroy.new(): ModeTypes.Impl
 			if team == attackers and bombState == "Carried" and carrier == player then
 				local site = siteAt(root.Position)
 				if site then
-					action = { player = player, kind = "Plant", endsAt = now + (ctx.mode.plantTime or 5), origin = root.Position, site = site.id }
+					action = { player = player, kind = "Plant", endsAt = now + (ctx.mode.plantTime or 5) * ctx.objectiveTimeMultiplier(player), origin = root.Position, site = site.id }
 					ctx.changed()
 				end
 			elseif team == defenders and bombState == "Planted" and bombPos then
 				if (root.Position - (bombPos :: Vector3)).Magnitude <= DEFUSE_RADIUS then
-					action = { player = player, kind = "Defuse", endsAt = now + (ctx.mode.defuseTime or 7), origin = root.Position }
+					action = { player = player, kind = "Defuse", endsAt = now + (ctx.mode.defuseTime or 7) * ctx.objectiveTimeMultiplier(player), origin = root.Position }
 					ctx.changed()
 				end
 			end

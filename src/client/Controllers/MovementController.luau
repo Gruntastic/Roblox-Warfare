@@ -9,6 +9,7 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Weapons = require(Shared.Config.Weapons)
 local ModesConfig = require(Shared.Config.Modes)
+local PerkRules = require(Shared.Pure.PerkRules)
 local ClientState = require(script.Parent.Parent.ClientState)
 
 local Match = ModesConfig.Match
@@ -21,6 +22,17 @@ local crouched = false
 local defaultHipHeight: number? = nil
 local CROUCH_HIP_DROP = 1.1
 local CROUCH_CAMERA = Vector3.new(0, -1.2, 0)
+local perkSpeed = 1 -- combined moveSpeed of the perks this life spawned with (Fleetfoot)
+
+-- Read once per deploy from the selected loadout in the latest ProfileSummary.
+local function readPerkSpeed(): number
+	local profile = ClientState.profile
+	local loadout = profile and profile.loadouts and profile.loadouts[profile.selectedLoadout]
+	if not loadout or not loadout.perks then
+		return 1
+	end
+	return PerkRules.combine(loadout.perks).moveSpeed
+end
 
 local function humanoidAndRoot(): (Humanoid?, BasePart?)
 	local character = player.Character
@@ -76,11 +88,11 @@ local function update(dt: number)
 
 	local speed
 	if sprinting then
-		speed = Match.SprintSpeed * weaponMult
+		speed = Match.SprintSpeed * weaponMult * perkSpeed
 	elseif crouched then
 		speed = Match.CrouchSpeed * adsMult
 	else
-		speed = Match.BaseWalkSpeed * weaponMult * adsMult
+		speed = Match.BaseWalkSpeed * weaponMult * adsMult * perkSpeed
 	end
 	humanoid.WalkSpeed = speed
 
@@ -97,6 +109,7 @@ function MovementController.init()
 		if not isDeployed then
 			return
 		end
+		perkSpeed = readPerkSpeed()
 	end)
 	ClientState.Fired:Connect(function()
 		-- Firing cancels sprint until the key is pressed again.

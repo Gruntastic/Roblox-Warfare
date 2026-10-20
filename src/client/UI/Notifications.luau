@@ -1,5 +1,6 @@
 --!strict
--- Small stacked banners for ClientState.Notify(text, kind). kind: "Info" | "Warning" | "LevelUp".
+-- Small stacked banners for ClientState.Notify(text, kind). kind: "Info" | "Warning" | "LevelUp" |
+-- "Challenge" (Phase 5: accent-filled "CHALLENGE COMPLETE" banner, taller and shown longer).
 local Theme = require(script.Parent.Theme)
 local ClientState = require(script.Parent.Parent.ClientState)
 
@@ -38,8 +39,59 @@ local function dismiss(banner: Frame)
 	end)
 end
 
+local function showChallenge(text: string)
+	order += 1
+	local banner: Frame = Theme.new("Frame", {
+		Name = "Banner",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromOffset(560, 62),
+		LayoutOrder = order,
+		Parent = container,
+	})
+	local group: CanvasGroup = Theme.new("CanvasGroup", {
+		Name = "Group",
+		BackgroundColor3 = Theme.Colors.Accent,
+		BackgroundTransparency = 0.05,
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(1, 1),
+		Position = UDim2.fromOffset(0, -12),
+		GroupTransparency = 1,
+		Parent = banner,
+	}, { Theme.corner(6) })
+	Theme.label({
+		Text = "CHALLENGE COMPLETE",
+		Font = Theme.Fonts.Title,
+		TextSize = 14,
+		TextColor3 = Theme.Colors.OnAccent,
+		Position = UDim2.fromOffset(18, 6),
+		Size = UDim2.new(1, -36, 0, 18),
+		Parent = group,
+	})
+	-- server text: "Challenge complete: <text>  +<xp> XP"; drop the redundant prefix
+	local body = string.gsub(text, "^[Cc]hallenge complete:%s*", "")
+	Theme.label({
+		Text = string.upper(body),
+		Font = Theme.Fonts.Bold,
+		TextSize = 18,
+		TextColor3 = Theme.Colors.OnAccent,
+		Position = UDim2.fromOffset(18, 26),
+		Size = UDim2.new(1, -36, 0, 26),
+		Parent = group,
+	})
+	Theme.tween(group, Theme.Tween.Pop, { GroupTransparency = 0, Position = UDim2.fromOffset(0, 0) })
+	table.insert(active, banner)
+	while #active > MAX_VISIBLE do
+		dismiss(active[1])
+	end
+	task.delay(DURATION + 2, dismiss, banner)
+end
+
 local function show(text: string, kind: string?)
 	local k = kind or "Info"
+	if k == "Challenge" then
+		showChallenge(text)
+		return
+	end
 	order += 1
 	local banner: Frame = Theme.new("Frame", {
 		Name = "Banner",
@@ -90,7 +142,7 @@ function Notifications.init()
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.new(0.5, 0, 0, STACK_Y),
-		Size = UDim2.fromOffset(560, 4 * 52),
+		Size = UDim2.fromOffset(560, 4 * 70),
 		Parent = canvas,
 	}, { Theme.list(Enum.FillDirection.Vertical, 8, Enum.HorizontalAlignment.Center) })
 	Theme.mount(gui)

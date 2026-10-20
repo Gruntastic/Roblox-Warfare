@@ -13,6 +13,7 @@ local Types = require(Shared.Types)
 local Leveling = require(Shared.Pure.Leveling)
 local ObjectiveRules = require(Shared.Pure.ObjectiveRules)
 local Progression = require(Shared.Config.Progression)
+local Phase5Rules = require(script.Parent.Phase5Rules)
 
 local Results = {}
 
@@ -264,7 +265,7 @@ local function show(p: Types.MatchResultsPayload)
 			return a.kills > b.kills
 		end)
 	end
-	local function playerRow(cells: { string }, order: number, isHeader: boolean, isMe: boolean, teamId: string?)
+	local function playerRow(cells: { string }, order: number, isHeader: boolean, isMe: boolean, teamId: string?, line: Types.PlayerLine?)
 		local rowFrame: Frame = Theme.new("Frame", {
 			BackgroundColor3 = if isMe then Theme.Colors.Accent else Theme.Colors.PanelLight,
 			BackgroundTransparency = if isHeader then 1 elseif isMe then 0.78 else 0.6,
@@ -283,15 +284,26 @@ local function show(p: Types.MatchResultsPayload)
 		end
 		local widths = { 0.48, 0.16, 0.12, 0.12, 0.12 }
 		local x = 0
+		-- Phase 5: prestige emblem badge before the name, equipped title in small caps after it
+		local emblem = if line
+			then Theme.emblemBadge(Phase5Rules.lineEmblem(line), 22, {
+				AnchorPoint = Vector2.new(0, 0.5),
+				Position = UDim2.new(0, 12, 0.5, 0),
+				Parent = rowFrame,
+			})
+			else nil
+		local nameInset = if emblem then 42 else 14
 		for i, text in cells do
+			local rich = i == 1 and line ~= nil
 			Theme.label({
-				Text = text,
+				Text = if rich and line then Theme.nameWithTitle(text, line.title, 12) else text,
+				RichText = rich,
 				Font = if isHeader then Theme.Fonts.Bold elseif i <= 2 then Theme.Fonts.Bold else Theme.Fonts.Medium,
 				TextSize = if isHeader then 14 else 18,
 				TextColor3 = if isHeader then Theme.Colors.TextMuted elseif isMe and i == 1 then Theme.Colors.Accent else Theme.Colors.Text,
 				TextXAlignment = if i == 1 then Enum.TextXAlignment.Left else Enum.TextXAlignment.Center,
-				Position = UDim2.new(x, if i == 1 then 14 else 0, 0, 0),
-				Size = UDim2.new(widths[i], if i == 1 then -14 else 0, 1, 0),
+				Position = UDim2.new(x, if i == 1 then nameInset else 0, 0, 0),
+				Size = UDim2.new(widths[i], if i == 1 then -nameInset else 0, 1, 0),
 				Parent = rowFrame,
 			})
 			x += widths[i]
@@ -300,7 +312,7 @@ local function show(p: Types.MatchResultsPayload)
 	playerRow({ "PLAYER", "SCORE", "K", "D", "A" }, 0, true, false, nil)
 	for i = 1, math.min(TOP_PLAYERS, #lines) do
 		local l = lines[i]
-		playerRow({ string.format("%d  %s", i, l.name), tostring(l.score), tostring(l.kills), tostring(l.deaths), tostring(l.assists) }, i, false, l.userId == localUserId, if ffa then nil else l.team)
+		playerRow({ string.format("%d  %s", i, l.name), tostring(l.score), tostring(l.kills), tostring(l.deaths), tostring(l.assists) }, i, false, l.userId == localUserId, if ffa then nil else l.team, l)
 	end
 
 	-- XP breakdown

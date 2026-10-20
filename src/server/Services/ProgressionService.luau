@@ -21,6 +21,7 @@ local StreakRules = require(Shared.Pure.StreakRules)
 local ChallengeRules = require(Shared.Pure.ChallengeRules)
 local CosmeticRules = require(Shared.Pure.CosmeticRules)
 local DataService = require(script.Parent.DataService)
+local ChallengeEvents = require(script.Parent.ChallengeEvents)
 
 type MatchLedger = {
 	combatXP: number,
@@ -48,7 +49,7 @@ end
 local function weaponEntry(profile: any, weaponId: string)
 	local w = profile.weapons[weaponId]
 	if not w then
-		w = { level = 1, xp = 0, kills = 0 }
+		w = { level = 1, xp = 0, kills = 0, headshots = 0 }
 		profile.weapons[weaponId] = w
 	end
 	return w
@@ -120,6 +121,7 @@ end
 
 -- Phase 5 hook for daily challenges and lifetime stats. Implemented by ChallengeService, which
 -- replaces this function in its init(); callers (combat, modes, killstreaks) just report events.
+-- Always call it through the table (ProgressionService.recordEvent) so the replacement is used.
 function ProgressionService.recordEvent(_player: Player, _event: ChallengeRules.Event) end
 
 function ProgressionService.summary(player: Player): Types.ProfileSummary?
@@ -241,6 +243,12 @@ local function grant(player: Player, accountAmount: number, reason: string, weap
 	return accountAmount
 end
 
+-- Fixed account XP that is not subject to the combat or objective per-minute caps (daily
+-- challenge rewards). Shows in the match breakdown under `reason`.
+function ProgressionService.grantBonus(player: Player, amount: number, reason: string): number
+	return grant(player, amount, reason, nil, nil)
+end
+
 -- Combat awards pass through anti-farm decay and the per-minute ceiling.
 function ProgressionService.onKill(killer: Player, victim: Player, weaponId: string?, headshot: boolean)
 	local profile = DataService.getProfile(killer)
@@ -257,34 +265,50 @@ function ProgressionService.onKill(killer: Player, victim: Player, weaponId: str
 	l.combatXP += acct
 	local wxp = (Progression.WeaponXP.Kill + (if headshot then Progression.WeaponXP.Headshot else 0)) * mult
 
+	-- Lifetime stats count every kill, killstreak kills included. Weapon kills, headshots and
+	-- weapon XP only go to real weapons ("Melee" and "Streak:<id>" are not in Weapons).
 	profile.stats.kills += 1
 	if headshot then
 		profile.stats.headshots += 1
 	end
-	if weaponId and Weapons[weaponId] then
-		weaponEntry(profile, weaponId).kills += 1
+	local weapon = if weaponId and Weapons[weaponId] then weaponId else nil
+	if weapon then
+		local w = weaponEntry(profile, weapon)
+		w.kills += 1
+		if headshot then
+			w.headshots = (w.headshots or 0) + 1
+		end
 	end
-	grant(killer, acct, if headshot then "Headshot Kill" else "Kill", weaponId, wxp)
+	grant(killer, acct, if headshot then "Headshot Kill" else "Kill", weapon, wxp)
+	ProgressionService.recordEvent(killer, ChallengeEvents.killEvent(weaponId, headshot, Weapons))
 end
 
 function ProgressionService.onAssist(player: Player, weaponId: string?)
 	local l = ledger(player)
 	local acct = XPRules.capCombat(l.combatXP, Progression.AccountXP.Assist, os.clock() - matchStartedAt, Progression.MaxCombatXPPerMinute)
 	l.combatXP += acct
-	grant(player, acct, "Assist", weaponId, Progression.WeaponXP.Assist)
+	grant(player, acct, "Assist", if weaponId and Weapons[weaponId] then weaponId else nil, Progression.WeaponXP.Assist)
+	ProgressionService.recordEvent(player, { kind = "assist" })
 end
 
 -- Objective awards (captures, hardpoint time, tags, plants, defuses, round wins). Capped per
 -- minute like combat XP so a broken mode can never mint unbounded XP.
+-- The objective is reported to challenges and lifetime stats even when the XP is capped.
 function ProgressionService.onObjective(player: Player, reason: string, amount: number)
-	if amount <= 0 or not DataService.getProfile(player) then
+	if not DataService.getProfile(player) then
 		return
 	end
-	local l = ledger(player)
-	local acct = XPRules.capCombat(l.objectiveXP, amount, os.clock() - matchStartedAt, Progression.MaxObjectiveXPPerMinute)
-	l.objectiveXP += acct
-	if acct > 0 then
-		grant(player, acct, reason, nil, nil)
+	if amount > 0 then
+		local l = ledger(player)
+		local acct = XPRules.capCombat(l.objectiveXP, amount, os.clock() - matchStartedAt, Progression.MaxObjectiveXPPerMinute)
+		l.objectiveXP += acct
+		if acct > 0 then
+			grant(player, acct, reason, nil, nil)
+		end
+	end
+	local event = ChallengeEvents.objectiveEvent(reason)
+	if event then
+		ProgressionService.recordEvent(player, event)
 	end
 end
 
@@ -314,6 +338,11 @@ function ProgressionService.endMatch(player: Player, secondsPlayed: number, won:
 		profile.stats.matches += 1
 		if won then
 			profile.stats.wins += 1
+		end
+		-- before the breakdown is built, so challenge XP earned here shows on the results screen
+		ProgressionService.recordEvent(player, { kind = "match" })
+		if won then
+			ProgressionService.recordEvent(player, { kind = "win" })
 		end
 	end
 	local l = ledger(player)
