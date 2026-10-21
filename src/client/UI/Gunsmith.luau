@@ -8,6 +8,9 @@
 --       DONE calls `onDone(newSelection)` and closes; BACK / Backspace / gamepad B / auto-close only close
 --       (Escape is not bound: it opens the Roblox menu).
 --       `onClosed` runs on every close (DONE included). Returns false if the weapon id is unknown.
+--   Gunsmith.preview(weaponId, onClosed?) -> boolean
+--       Opens the same screen as a look-only preview for any weapon, locked ones included: the 3D
+--       view, stats and camos work, attachments can be tried on, nothing is saved (no DONE).
 --   Gunsmith.close()       closes without applying (no-op when closed).
 --   Gunsmith.isOpen() -> boolean
 --   Gunsmith.prosCons(attachmentDef) -> { { text: string, positive: boolean } }
@@ -45,10 +48,12 @@ local Gunsmith = {}
 local C = Theme.Colors
 local BACK_ACTION = "COR_GunsmithBack"
 local PREVIEW_FOV = 30
-local PREVIEW_PITCH = -0.22 -- radians; camera slightly above the weapon
-local AUTO_SPIN = 0.35 -- radians per second while idle
+local PREVIEW_PITCH = -0.18 -- radians; camera slightly above the weapon
+local AUTO_SPIN = 0.25 -- radians per second while idle
 local DRAG_SPEED = 0.012 -- radians per screen pixel
 local DRAG_IDLE = 2.5 -- seconds after a drag before the auto spin resumes
+local SIDE_YAW = math.rad(90) -- camera on the weapon's right side, muzzle pointing left
+local ZOOM_MIN, ZOOM_MAX = 0.55, 1.6 -- scroll zoom, as a fraction of the fit distance
 
 local SLOT_TITLES: { [string]: string } = {
 	Optic = "OPTIC",
@@ -178,6 +183,11 @@ local dragging = false
 local dragInput: InputObject? = nil
 local dragLastX = 0
 local lastDragAt = -math.huge
+local zoom = 1
+local fitDist = 8
+local previewOnly = false
+local doneButton: TextButton
+local footerHint: TextLabel
 
 -- widgets
 local weaponTitle: TextLabel
@@ -325,7 +335,8 @@ local function rebuildPreview(snap: boolean)
 	local cf, size = model:GetBoundingBox()
 	local radius = math.max(size.Magnitude * 0.5, 0.5)
 	targetFocus = cf.Position
-	targetDist = radius / math.tan(math.rad(PREVIEW_FOV * 0.5)) * 1.05
+	fitDist = radius / math.tan(math.rad(PREVIEW_FOV * 0.5)) * 0.8
+	targetDist = fitDist * zoom
 	if snap then
 		camFocus = targetFocus
 		camDist = targetDist
@@ -782,7 +793,7 @@ local function refreshHeader()
 	for _ in selection do
 		count += 1
 	end
-	weaponInfo.Text = string.format(
+	weaponInfo.Text = (if previewOnly then "PREVIEW  ·  " else "") .. string.format(
 		"%s  ·  %s  ·  %d / %d ATTACHMENTS",
 		string.upper((d.class:gsub("(%l)(%u)", "%1 %2"))),
 		string.upper(d.slot),
@@ -876,7 +887,7 @@ function Gunsmith.close()
 end
 
 local function done()
-	if not isOpenFlag then
+	if not isOpenFlag or previewOnly then
 		return
 	end
 	local cb = onDoneCb
@@ -898,6 +909,9 @@ function Gunsmith.open(id: string, current: { [string]: string }?, onDone: (Sele
 		return false
 	end
 	def = d
+	previewOnly = false
+	doneButton.Visible = true
+	footerHint.Text = "DONE SAVES THIS LOADOUT  ·  BACK DISCARDS CHANGES"
 	selection = WeaponStats.sanitize(d, copySelection(current), weaponLevel(id), AttachmentsConfig)
 	baseEffective = WeaponStats.resolve(d, nil, AttachmentsConfig)
 	baseRatings = WeaponStats.ratings(baseEffective :: WeaponStats.Effective)
@@ -915,7 +929,8 @@ function Gunsmith.open(id: string, current: { [string]: string }?, onDone: (Sele
 	optionsList.CanvasPosition = Vector2.zero
 	slotsTitle.Text = if #d.attachmentSlots > 0 then "ATTACHMENT SLOTS" else "NO ATTACHMENT SLOTS"
 
-	yaw = math.rad(115)
+	yaw = SIDE_YAW + math.rad(20)
+	zoom = 1
 	lastDragAt = -math.huge
 	pendingCamo = nil
 	previewCamo = equippedCamo(id)
@@ -1100,7 +1115,7 @@ end
 
 local function buildPreview(parent: Instance)
 	local panel = Theme.panel({ Name = "Preview", Size = UDim2.new(0.42, -14, 1, 0), LayoutOrder = 2, Parent = parent })
-	panel.BackgroundColor3 = C.PanelLight
+	panel.BackgroundColor3 = Color3.fromRGB(70, 76, 86) -- lighter than the other panels so dark guns read
 	Theme.new("UIGradient", {
 		Rotation = 90,
 		Transparency = NumberSequence.new({
@@ -1114,9 +1129,9 @@ local function buildPreview(parent: Instance)
 		Name = "Viewport",
 		BackgroundTransparency = 1,
 		Size = UDim2.fromScale(1, 1),
-		Ambient = Color3.fromRGB(128, 132, 140),
-		LightColor = Color3.fromRGB(255, 246, 232),
-		LightDirection = Vector3.new(-0.5, -1, -0.35),
+		Ambient = Color3.fromRGB(175, 180, 190),
+		LightColor = Color3.fromRGB(255, 250, 240),
+		LightDirection = Vector3.new(-0.4, -0.8, -0.5),
 		Active = true,
 		Parent = panel,
 	})
@@ -1130,10 +1145,19 @@ local function buildPreview(parent: Instance)
 			dragging = true
 			dragInput = if input.UserInputType == Enum.UserInputType.Touch then input else nil
 			dragLastX = input.Position.X
+		elseif input.UserInputType == Enum.UserInputType.MouseWheel then
+			zoom = math.clamp(zoom * (1 - input.Position.Z * 0.1), ZOOM_MIN, ZOOM_MAX)
+			targetDist = fitDist * zoom
+		end
+	end)
+	viewport.InputChanged:Connect(function(input: InputObject)
+		if isOpenFlag and input.UserInputType == Enum.UserInputType.MouseWheel then
+			zoom = math.clamp(zoom * (1 - input.Position.Z * 0.1), ZOOM_MIN, ZOOM_MAX)
+			targetDist = fitDist * zoom
 		end
 	end)
 	Theme.label({
-		Text = if Theme.isTouchOnly() then "DRAG TO ROTATE" else "DRAG TO ROTATE  ·  BACKSPACE TO GO BACK",
+		Text = if Theme.isTouchOnly() then "DRAG TO ROTATE" else "DRAG TO ROTATE  ·  SCROLL TO ZOOM  ·  BACKSPACE TO GO BACK",
 		Font = Theme.Fonts.Bold,
 		TextSize = 12,
 		TextColor3 = C.TextMuted,
@@ -1278,7 +1302,7 @@ local function buildFooter(parent: Instance)
 		Size = UDim2.new(1, -96, 0, 60),
 		Parent = parent,
 	})
-	Theme.label({
+	footerHint = Theme.label({
 		Text = "DONE SAVES THIS LOADOUT  ·  BACK DISCARDS CHANGES",
 		Font = Theme.Fonts.Bold,
 		TextSize = 14,
@@ -1295,7 +1319,7 @@ local function buildFooter(parent: Instance)
 	}, { Theme.list(Enum.FillDirection.Horizontal, 12, Enum.HorizontalAlignment.Right) })
 	local back = Theme.button({ Name = "Back", Text = "BACK", TextSize = 18, Size = UDim2.new(0, 160, 1, 0), LayoutOrder = 1, Parent = buttons })
 	local reset = Theme.button({ Name = "Reset", Text = "RESET", TextSize = 18, Size = UDim2.new(0, 160, 1, 0), LayoutOrder = 2, Parent = buttons })
-	local doneButton = Theme.button({ Name = "Done", Text = "DONE", TextSize = 20, Size = UDim2.new(0, 240, 1, 0), LayoutOrder = 3, Parent = buttons }, "Primary")
+	doneButton = Theme.button({ Name = "Done", Text = "DONE", TextSize = 20, Size = UDim2.new(0, 240, 1, 0), LayoutOrder = 3, Parent = buttons }, "Primary")
 	back.Activated:Connect(function()
 		Gunsmith.close()
 	end)
@@ -1348,6 +1372,18 @@ function Gunsmith.start()
 		end
 		task.wait(0.25)
 	end
+end
+
+-- Look-only Gunsmith for any weapon (locked ones too): nothing is saved.
+function Gunsmith.preview(id: string, onClosed: (() -> ())?): boolean
+	local opened = Gunsmith.open(id, nil, function() end, onClosed)
+	if opened then
+		previewOnly = true
+		doneButton.Visible = false
+		footerHint.Text = "PREVIEW ONLY  ·  ATTACHMENTS CAN BE TRIED ON, NOTHING IS SAVED"
+		refreshAll(false)
+	end
+	return opened
 end
 
 return Gunsmith

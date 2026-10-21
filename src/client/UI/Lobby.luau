@@ -612,7 +612,7 @@ local function weaponCard(profile: Types.ProfileSummary, def: WeaponDef, slot: s
 		TextSize = 18,
 		TextColor3 = if unlocked then C.Text else C.TextMuted,
 		Position = UDim2.fromOffset(14, 10),
-		Size = UDim2.new(1, -28, 0, 22),
+		Size = UDim2.new(1, -90, 0, 22),
 		Parent = card,
 	})
 	Theme.label({
@@ -655,6 +655,27 @@ local function weaponCard(profile: Types.ProfileSummary, def: WeaponDef, slot: s
 			Parent = card,
 		})
 	end
+	-- VIEW: look at any weapon (locked ones too) in the Gunsmith preview
+	local view = Theme.button({
+		Name = "View",
+		Text = "VIEW",
+		Font = Theme.Fonts.Bold,
+		TextSize = 12,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -10, 0, 10),
+		Size = UDim2.fromOffset(58, 24),
+		Parent = card,
+	})
+	view.Activated:Connect(function()
+		if Gunsmith.isOpen() or Barracks.isOpen() or StoreMenu.isOpen() then
+			return
+		end
+		if Gunsmith.preview(def.id, function()
+			mainFrame.Visible = true
+		end) then
+			mainFrame.Visible = false
+		end
+	end)
 	card.Activated:Connect(function()
 		local d = draft
 		if not unlocked or not d then
