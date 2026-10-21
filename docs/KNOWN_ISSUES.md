@@ -21,4 +21,4 @@ Date: 2026-10-20. Severity: **Blocker** (must fix or clear before launch), **Min
 | 14 | Note | During Blackout the S&D plant/defuse prompt stays on screen on purpose, so the objective stays playable | By design |
 | 15 | Note | A solo match shows DRAW (team modes) or "No outright winner" (FFA) | By design |
 | 16 | Note | One server runs one mode at a time. A player who picks a mode the queue did not choose waits for a later match (or switches to ANY). Cross-server matchmaking would be a follow-up | By design |
-| 17 | Minor | SFX slots in Config/Audio.luau are all 0 until the owner uploads sounds; footsteps, streak, objective and UI sounds are reserved but not wired | Open |
+| 17 | Minor | Toolbox sounds (AR, SMG, shotgun, pistol, suppressed, distant, dry fire, shell load, bolt, kill, hurt, impacts) are free community uploads whose licence cannot be verified; replace with the owner's licensed SFX when available. Equip, ADS, melee, footstep, UI and objective sounds are still empty | Open |

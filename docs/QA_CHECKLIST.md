@@ -143,3 +143,10 @@ Tip: in Studio, `workspace:SetAttribute("QA_GrantLevels", 30)` unlocks everythin
   after it runs (spec checks all six maps). Not yet eyeballed in Studio side by side.
 - Sound: all slots are 0, so nothing plays yet; playback untested until ids are added.
 - Needs 2 players: two players picking different modes, and joining a running match by its mode.
+
+## 2026-10-21: owner sounds, Toolbox sounds, starters, Gunsmith preview, iron sights (d8b9ddf)
+- Specs 317 pass; luau-lsp 0 errors. Roster spec now requires a level-1 weapon in every class.
+- Studio: all 21 audio ids in Config/Audio preload with status Success. Not yet listened to in a match.
+- Studio: VIEW on a locked KT-9 opened the Gunsmith preview (PREVIEW tag, no DONE button), brighter
+  backdrop, notched rear sight and eared front post visible. ADS on the VK-7 shows the notch and post
+  at screen centre. MR-5 shows LV 1 (unlocked) at account level 1.
