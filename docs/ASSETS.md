@@ -27,11 +27,62 @@ Five jobs ended "outcome unknown" on ForgeGUI's side. They were not regenerated 
 never regenerate an outcome_unknown job, since it may still have charged). Their slots stay `0`:
 `Icon.Gunsmith`, `Talon.Shirt`, `Arctic.Shirt`, `Arctic.Pants`, `NightOps.Shirt`.
 
+## Environment upgrade (round 2)
+
+The owner approved the images and then "models for everything else". The account ran out of
+ForgeGUI credits partway through the models. A high-quality model costs 4,800 credits.
+
+**Materials** (MaterialVariants named `Forge<Key>`, applied by `EnvironmentService` to map parts
+whose material is listed in `Assets.MaterialFor`, or whose name is in `Assets.MaterialForName`):
+Asphalt, RustMetal (CorrodedMetal), DiamondPlate, Sandstone, DesertSand (Sand), Snow, Brick,
+WoodPlanks, Rock (Rock and Slate), and CorrugatedMetal (container walls; colour map only). Each has a
+colour map and an AI-made normal map. The part colours are lifted 55% towards white on textured
+parts, because Roblox multiplies the part colour into the texture.
+
+**Skies** (`Assets.Skies`): Red Mesa, Frost Relay, Dustline Terminal, Breakwater and Ashwood Estate.
+Each is a ForgeGUI panorama stretched to 2:1 and cut into six 1024px faces by ForgeGUI's
+`roblox-sky-cubemap` profile. The panoramas were not true 360° images, so check the horizon and the
+seams in Studio.
+
+**Models** (`Assets.Models`, loaded by `EnvironmentService` with InsertService and laid over the
+part-built objects by `ModelSkin`). The parts keep collision and hit detection and only turn
+invisible:
+
+| Key | Roblox Model id |
+|---|---|
+| `Prop.Container` | 110711970414624 |
+| `Weapon.VK7` | 73413732325934 |
+| `Weapon.KT9` | 90059341898722 |
+| `Weapon.SW3` | 132319886882773 |
+| `Weapon.HL4` | 104328653393941 |
+| `Weapon.MN8` | 95373454315857 |
+
+Every map prop is now tagged (`Prop` / `PropId` attributes), so a model added under
+`Prop.<Key>` shows up with no other code change. The keys are: Crate, OakTree, StreetTree, Bench, Urn,
+Statue, LampPost, StreetLamp, MineLamp, HayBale, Carriage, Topiary, Container, Pallet, Bollard,
+FishTotes, BoxTruck, Forklift, LightTower, FishingBoat, Car, Van, JerseyBarrier, VendingMachine,
+EquipmentCase, Snowcat, Dumpster, Boulder, Hoodoo, TimberStack, OreCart, OreWagon and WaterTower.
+
+**Not made yet (credits ran out):** 21 guns (BX2, TR6, MR5, ZP9, CW4, GN2, MT1, BW5, RP3, LS6, RL2,
+HR5, GT8, MO1, HG8, RV6, BL9, P12, FX3, OG6, SP3), the killstreak models (drone, sentry, strike jet,
+mortar), the gear models (helmet, plate carrier, backpack) and the map props above.
+
+**Outcome unknown, not regenerated:** Concrete colour map (089fc62b), Grass colour map (49ecdaae) and
+the Iron Borough sky (8c2dc1fd). The CorrugatedMetal normal map was still running at the time of this
+write-up (a0902993).
+
+**Known limits:**
+- A mesh replaces the part colours. For example, every container shows the generated container's
+  colour.
+- Mesh guns with a non-default camo drop their texture and take the camo colour.
+- Gunsmith attachments stay part-built on top of the mesh.
+- If a mesh comes out facing backwards, set `Assets.ModelFlip[key] = true`.
+
 ## Animations and gear
 
 ForgeGUI's R15 animation routes were not available, so operator animations are procedural
 (`Controllers/OperatorAnimator.luau`, Motor6D transforms) and gear is built from parts
-(`GearBuilder.luau`). `Assets.GearModels` is a placeholder for future mesh gear and nothing reads it.
+(`GearBuilder.luau`). Mesh gear would go in `Assets.Models` as `Gear.*`, but GearBuilder does not use it yet.
 
 ## Registry
 

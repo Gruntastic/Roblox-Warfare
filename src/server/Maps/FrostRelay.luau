@@ -140,6 +140,20 @@ function MapModule.build(): Model
 		folder = f
 	end
 
+	-- Props: parts built inside prop("Key", fn) are tagged so EnvironmentService can lay a ForgeGUI
+	-- mesh (Assets.Models["Prop.Key"]) over them. Nested props belong to the outermost one.
+	local propKey: string? = nil
+	local propCount = 0
+	local function prop(key: string, fn: () -> ())
+		local outer = propKey
+		if outer == nil then
+			propCount += 1
+			propKey = key
+		end
+		fn()
+		propKey = outer
+	end
+
 	local function finish(p: BasePart, st: Style, name: string?)
 		p.Anchored = true
 		p.CanQuery = true
@@ -150,6 +164,10 @@ function MapModule.build(): Model
 		p.TopSurface = Enum.SurfaceType.Smooth
 		p.BottomSurface = Enum.SurfaceType.Smooth
 		p.Name = name or "Part"
+		if propKey then
+			p:SetAttribute("Prop", propKey)
+			p:SetAttribute("PropId", propCount)
+		end
 		p.Parent = folder
 	end
 
@@ -270,7 +288,9 @@ function MapModule.build(): Model
 
 	-- Equipment case (blue-grey) of size s, optional yaw.
 	local function case(x: number, y: number, z: number, s: number, yaw: number?)
-		box(CFrame.new(x, y + s / 2, z) * CFrame.Angles(0, yaw or 0, 0), Vector3.new(s * 1.3, s, s), P.metalBlue, "Case")
+		prop("EquipmentCase", function()
+			box(CFrame.new(x, y + s / 2, z) * CFrame.Angles(0, yaw or 0, 0), Vector3.new(s * 1.3, s, s), P.metalBlue, "Case")
+		end)
 	end
 
 	local function drums(x: number, y: number, z: number, n: number)
@@ -296,22 +316,26 @@ function MapModule.build(): Model
 	end
 
 	local function lampPost(x: number, z: number, h: number, st: Style)
-		cylY(x, 0, z, h, 0.8, P.metalDark, "LampPost")
-		blk(x - 0.6, h - 0.6, z - 0.6, x + 0.6, h + 0.4, z + 0.6, P.metal, "LampHead")
-		local bulb = blk(x - 0.45, h - 1.0, z - 0.45, x + 0.45, h - 0.6, z + 0.45, st, "LampBulb")
-		light(bulb, st.color, 26, 1.2)
+		prop("LampPost", function()
+			cylY(x, 0, z, h, 0.8, P.metalDark, "LampPost")
+			blk(x - 0.6, h - 0.6, z - 0.6, x + 0.6, h + 0.4, z + 0.6, P.metal, "LampHead")
+			local bulb = blk(x - 0.45, h - 1.0, z - 0.45, x + 0.45, h - 0.6, z + 0.45, st, "LampBulb")
+			light(bulb, st.color, 26, 1.2)
+		end)
 	end
 
 	-- Snowcat: tracked over-snow vehicle, long axis along X. Crouch-to-standing cover.
 	local function snowcat(x: number, z: number, flip: boolean, st: Style)
-		local f = if flip then -1 else 1
-		blk(x - 6, 0, z - 3.2, x + 6, 2.4, z - 1.6, P.rubber, "Track")
-		blk(x - 6, 0, z + 1.6, x + 6, 2.4, z + 3.2, P.rubber, "Track")
-		blk(x - 5.5, 1.2, z - 1.6, x + 5.5, 2.4, z + 1.6, P.metalDark, "Chassis")
-		blk(x - 5.8, 2.4, z - 3, x + 5.8, 4.4, z + 3, st, "Body")
-		blk(x + f * 0.5 - 3, 4.4, z - 2.8, x + f * 0.5 + 3, 7.6, z + 2.8, st, "Cab")
-		blk(x + f * 3.5 - 0.1, 5, z - 2.4, x + f * 3.5 + 0.1, 7.2, z + 2.4, P.glass, "Windscreen")
-		blk(x - f * 5.8 - 0.4, 0.6, z - 3.4, x - f * 5.8 + 0.4, 3.6, z + 3.4, P.metal, "Blade")
+		prop("Snowcat", function()
+			local f = if flip then -1 else 1
+			blk(x - 6, 0, z - 3.2, x + 6, 2.4, z - 1.6, P.rubber, "Track")
+			blk(x - 6, 0, z + 1.6, x + 6, 2.4, z + 3.2, P.rubber, "Track")
+			blk(x - 5.5, 1.2, z - 1.6, x + 5.5, 2.4, z + 1.6, P.metalDark, "Chassis")
+			blk(x - 5.8, 2.4, z - 3, x + 5.8, 4.4, z + 3, st, "Body")
+			blk(x + f * 0.5 - 3, 4.4, z - 2.8, x + f * 0.5 + 3, 7.6, z + 2.8, st, "Cab")
+			blk(x + f * 3.5 - 0.1, 5, z - 2.4, x + f * 3.5 + 0.1, 7.2, z + 2.4, P.glass, "Windscreen")
+			blk(x - f * 5.8 - 0.4, 0.6, z - 3.4, x - f * 5.8 + 0.4, 3.6, z + 3.4, P.metal, "Blade")
+		end)
 	end
 
 	-- Small timber hut with a pitched-look roof cap and stovepipe (solid, not enterable).

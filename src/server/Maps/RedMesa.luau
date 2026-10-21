@@ -140,6 +140,20 @@ function MapModule.build(): Model
 		folder = f
 	end
 
+	-- Props: parts built inside prop("Key", fn) are tagged so EnvironmentService can lay a ForgeGUI
+	-- mesh (Assets.Models["Prop.Key"]) over them. Nested props belong to the outermost one.
+	local propKey: string? = nil
+	local propCount = 0
+	local function prop(key: string, fn: () -> ())
+		local outer = propKey
+		if outer == nil then
+			propCount += 1
+			propKey = key
+		end
+		fn()
+		propKey = outer
+	end
+
 	local function finish(p: BasePart, st: Style, name: string?)
 		p.Anchored = true
 		p.CanQuery = true
@@ -150,6 +164,10 @@ function MapModule.build(): Model
 		p.TopSurface = Enum.SurfaceType.Smooth
 		p.BottomSurface = Enum.SurfaceType.Smooth
 		p.Name = name or "Part"
+		if propKey then
+			p:SetAttribute("Prop", propKey)
+			p:SetAttribute("PropId", propCount)
+		end
 		p.Parent = folder
 	end
 
@@ -268,23 +286,29 @@ function MapModule.build(): Model
 
 	-- Weathered boulder: two or three overlapping rotated blocks.
 	local function boulder(x: number, y: number, z: number, s: number, seed: number)
-		local a = seed * 0.73
-		box(CFrame.new(x, y + s * 0.4, z) * CFrame.Angles(0, a, 0.08), Vector3.new(s, s * 0.8, s * 0.85), P.rock, "Boulder")
-		box(CFrame.new(x + s * 0.3, y + s * 0.3, z - s * 0.25) * CFrame.Angles(0.12, a + 0.9, 0), Vector3.new(s * 0.7, s * 0.6, s * 0.6), P.rockDark, "Boulder")
-		if seed % 2 == 0 then
-			box(CFrame.new(x - s * 0.35, y + s * 0.2, z + s * 0.3) * CFrame.Angles(0, a + 0.4, -0.1), Vector3.new(s * 0.55, s * 0.4, s * 0.5), P.sandstoneDark, "Boulder")
-		end
+		prop("Boulder", function()
+			local a = seed * 0.73
+			box(CFrame.new(x, y + s * 0.4, z) * CFrame.Angles(0, a, 0.08), Vector3.new(s, s * 0.8, s * 0.85), P.rock, "Boulder")
+			box(CFrame.new(x + s * 0.3, y + s * 0.3, z - s * 0.25) * CFrame.Angles(0.12, a + 0.9, 0), Vector3.new(s * 0.7, s * 0.6, s * 0.6), P.rockDark, "Boulder")
+			if seed % 2 == 0 then
+				box(CFrame.new(x - s * 0.35, y + s * 0.2, z + s * 0.3) * CFrame.Angles(0, a + 0.4, -0.1), Vector3.new(s * 0.55, s * 0.4, s * 0.5), P.sandstoneDark, "Boulder")
+			end
+		end)
 	end
 
 	-- Hoodoo: stacked rock column with a cap stone.
 	local function hoodoo(x: number, y: number, z: number, h: number, seed: number)
-		box(CFrame.new(x, y + h * 0.3, z) * CFrame.Angles(0, seed * 0.5, 0), Vector3.new(7, h * 0.6, 6.5), P.rock, "Hoodoo")
-		box(CFrame.new(x, y + h * 0.75, z) * CFrame.Angles(0, seed * 0.5 + 0.4, 0), Vector3.new(5, h * 0.3, 4.8), P.sandstone, "Hoodoo")
-		box(CFrame.new(x, y + h * 0.95, z) * CFrame.Angles(0, seed * 0.5 + 0.2, 0), Vector3.new(7.5, h * 0.1, 7), P.rockPale, "HoodooCap")
+		prop("Hoodoo", function()
+			box(CFrame.new(x, y + h * 0.3, z) * CFrame.Angles(0, seed * 0.5, 0), Vector3.new(7, h * 0.6, 6.5), P.rock, "Hoodoo")
+			box(CFrame.new(x, y + h * 0.75, z) * CFrame.Angles(0, seed * 0.5 + 0.4, 0), Vector3.new(5, h * 0.3, 4.8), P.sandstone, "Hoodoo")
+			box(CFrame.new(x, y + h * 0.95, z) * CFrame.Angles(0, seed * 0.5 + 0.2, 0), Vector3.new(7.5, h * 0.1, 7), P.rockPale, "HoodooCap")
+		end)
 	end
 
 	local function crate(x: number, y: number, z: number, s: number, yaw: number?)
-		box(CFrame.new(x, y + s / 2, z) * CFrame.Angles(0, yaw or 0, 0), Vector3.new(s, s, s), P.planks, "Crate")
+		prop("Crate", function()
+			box(CFrame.new(x, y + s / 2, z) * CFrame.Angles(0, yaw or 0, 0), Vector3.new(s, s, s), P.planks, "Crate")
+		end)
 	end
 
 	local function barrels(x: number, y: number, z: number, n: number)
@@ -297,55 +321,65 @@ function MapModule.build(): Model
 
 	-- Stack of mine timbers along X or Z: crouch cover, 3.6 tall.
 	local function timberStack(x: number, y: number, z: number, len: number, alongZ: boolean)
-		for i = 0, 2 do
-			local h = y + i * 1.2
-			local w = 4.2 - i * 0.9
-			if alongZ then
-				blk(x - w / 2, h, z - len / 2, x + w / 2, h + 1.2, z + len / 2, P.timber, "Timbers")
-			else
-				blk(x - len / 2, h, z - w / 2, x + len / 2, h + 1.2, z + w / 2, P.timber, "Timbers")
+		prop("TimberStack", function()
+			for i = 0, 2 do
+				local h = y + i * 1.2
+				local w = 4.2 - i * 0.9
+				if alongZ then
+					blk(x - w / 2, h, z - len / 2, x + w / 2, h + 1.2, z + len / 2, P.timber, "Timbers")
+				else
+					blk(x - len / 2, h, z - w / 2, x + len / 2, h + 1.2, z + w / 2, P.timber, "Timbers")
+				end
 			end
-		end
+		end)
 	end
 
 	-- Ore cart on a short rail: body, ore heap and two axles. Long axis along X.
 	local function oreCart(x: number, y: number, z: number)
-		blk(x - 3, y + 0.8, z - 2, x + 3, y + 4, z + 2, P.rust, "OreCart")
-		blk(x - 2.6, y + 4, z - 1.6, x + 2.6, y + 4.6, z + 1.6, P.ore, "OreHeap")
-		for _, ax in { -2, 2 } do
-			cylH(x + ax, y + 0.8, z, 4.6, 1.6, true, P.rustDark, "CartAxle")
-		end
+		prop("OreCart", function()
+			blk(x - 3, y + 0.8, z - 2, x + 3, y + 4, z + 2, P.rust, "OreCart")
+			blk(x - 2.6, y + 4, z - 1.6, x + 2.6, y + 4.6, z + 1.6, P.ore, "OreHeap")
+			for _, ax in { -2, 2 } do
+				cylH(x + ax, y + 0.8, z, 4.6, 1.6, true, P.rustDark, "CartAxle")
+			end
+		end)
 	end
 
 	-- Ore wagon: bigger, open-topped, on a flat bed. Long axis along X.
 	local function oreWagon(x: number, z: number, st: Style)
-		blk(x - 7, 1.2, z - 3, x + 7, 2.2, z + 3, P.rustDark, "WagonBed")
-		wall(false, x - 7, x + 7, z - 3, z - 2.4, 2.2, 6.5, {}, st, "WagonSide")
-		wall(false, x - 7, x + 7, z + 2.4, z + 3, 2.2, 6.5, {}, st, "WagonSide")
-		blk(x - 7, 2.2, z - 2.4, x - 6.4, 6.5, z + 2.4, st, "WagonEnd")
-		blk(x + 6.4, 2.2, z - 2.4, x + 7, 6.5, z + 2.4, st, "WagonEnd")
-		blk(x - 6.4, 2.2, z - 2.4, x + 6.4, 5.4, z + 2.4, P.ore, "WagonOre")
-		for _, ax in { -4.5, 4.5 } do
-			cylH(x + ax, 1.1, z, 6.6, 2.2, true, P.metal, "WagonAxle")
-		end
+		prop("OreWagon", function()
+			blk(x - 7, 1.2, z - 3, x + 7, 2.2, z + 3, P.rustDark, "WagonBed")
+			wall(false, x - 7, x + 7, z - 3, z - 2.4, 2.2, 6.5, {}, st, "WagonSide")
+			wall(false, x - 7, x + 7, z + 2.4, z + 3, 2.2, 6.5, {}, st, "WagonSide")
+			blk(x - 7, 2.2, z - 2.4, x - 6.4, 6.5, z + 2.4, st, "WagonEnd")
+			blk(x + 6.4, 2.2, z - 2.4, x + 7, 6.5, z + 2.4, st, "WagonEnd")
+			blk(x - 6.4, 2.2, z - 2.4, x + 6.4, 5.4, z + 2.4, P.ore, "WagonOre")
+			for _, ax in { -4.5, 4.5 } do
+				cylH(x + ax, 1.1, z, 6.6, 2.2, true, P.metal, "WagonAxle")
+			end
+		end)
 	end
 
 	-- Water tower: four timber legs with low braces and a tank on top.
 	local function waterTower(x: number, z: number)
-		for _, c in { { -4, -4 }, { 4, -4 }, { -4, 4 }, { 4, 4 } } do
-			blk(x + c[1] - 0.8, 0, z + c[2] - 0.8, x + c[1] + 0.8, 16, z + c[2] + 0.8, P.timber, "TowerLeg")
-		end
-		blk(x - 4.8, 0, z - 4.8, x + 4.8, 1, z + 4.8, P.sandstoneDark, "TowerFooting")
-		blk(x - 5, 15, z - 5, x + 5, 16, z + 5, P.planksDark, "TowerDeck")
-		cylY(x, 16, z, 26, 11, P.planks, "Tank")
-		cylY(x, 26, z, 27, 9, P.rustDark, "TankLid")
-		blk(x - 0.3, 3, z - 4.8, x + 0.3, 11, z - 4.2, P.timber, "TowerBrace")
-		blk(x - 0.3, 3, z + 4.2, x + 0.3, 11, z + 4.8, P.timber, "TowerBrace")
+		prop("WaterTower", function()
+			for _, c in { { -4, -4 }, { 4, -4 }, { -4, 4 }, { 4, 4 } } do
+				blk(x + c[1] - 0.8, 0, z + c[2] - 0.8, x + c[1] + 0.8, 16, z + c[2] + 0.8, P.timber, "TowerLeg")
+			end
+			blk(x - 4.8, 0, z - 4.8, x + 4.8, 1, z + 4.8, P.sandstoneDark, "TowerFooting")
+			blk(x - 5, 15, z - 5, x + 5, 16, z + 5, P.planksDark, "TowerDeck")
+			cylY(x, 16, z, 26, 11, P.planks, "Tank")
+			cylY(x, 26, z, 27, 9, P.rustDark, "TankLid")
+			blk(x - 0.3, 3, z - 4.8, x + 0.3, 11, z - 4.2, P.timber, "TowerBrace")
+			blk(x - 0.3, 3, z + 4.2, x + 0.3, 11, z + 4.8, P.timber, "TowerBrace")
+		end)
 	end
 
 	local function lamp(x: number, y: number, z: number, h: number)
-		blk(x - 0.4, y, z - 0.4, x + 0.4, y + h, z + 0.4, P.timber, "LampPole")
-		blk(x - 0.6, y + h - 1.4, z - 0.6, x + 0.6, y + h - 0.6, z + 0.6, P.lamp, "Lantern")
+		prop("MineLamp", function()
+			blk(x - 0.4, y, z - 0.4, x + 0.4, y + h, z + 0.4, P.timber, "LampPole")
+			blk(x - 0.6, y + h - 1.4, z - 0.6, x + 0.6, y + h - 0.6, z + 0.6, P.lamp, "Lantern")
+		end)
 	end
 
 	-------------------------------------------------------------------------------------------

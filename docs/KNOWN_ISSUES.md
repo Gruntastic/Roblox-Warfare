@@ -26,3 +26,5 @@ Date: 2026-10-20. Severity: **Blocker** (must fix or clear before launch), **Min
 | 19 | Minor | ForgeGUI art was published without a visual check (previews could not be opened from the build environment). Check every image in docs/ASSETS.md, especially the AI-drawn wordmark text | Owner |
 | 20 | Minor | Five ForgeGUI jobs ended "outcome unknown" (Gunsmith icon, Talon shirt, Arctic shirt and pants, NightOps shirt); those slots use code-drawn or colour fallbacks | Open |
 | 21 | Note | Operator animations are procedural because ForgeGUI cannot make R15 animations; gear is part-built, not mesh | By design |
+| 22 | Minor | ForgeGUI materials, skies and mesh models (guns, containers) are wired in without a Studio run: check the texture tint, the sky horizon and seams, and mesh fit/orientation (`Assets.ModelFlip`) | Needs a Studio playtest |
+| 23 | Note | InsertService loads the mesh models only when the experience is owned by the creator who published them (user 2930909850); elsewhere everything stays part-built | By design |

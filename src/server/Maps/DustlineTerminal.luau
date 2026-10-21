@@ -142,6 +142,20 @@ function MapModule.build(): Model
 		folder = f
 	end
 
+	-- Props: parts built inside prop("Key", fn) are tagged so EnvironmentService can lay a ForgeGUI
+	-- mesh (Assets.Models["Prop.Key"]) over them. Nested props belong to the outermost one.
+	local propKey: string? = nil
+	local propCount = 0
+	local function prop(key: string, fn: () -> ())
+		local outer = propKey
+		if outer == nil then
+			propCount += 1
+			propKey = key
+		end
+		fn()
+		propKey = outer
+	end
+
 	local function finish(p: BasePart, st: Style, name: string?)
 		p.Anchored = true
 		p.CanQuery = true
@@ -152,6 +166,10 @@ function MapModule.build(): Model
 		p.TopSurface = Enum.SurfaceType.Smooth
 		p.BottomSurface = Enum.SurfaceType.Smooth
 		p.Name = name or "Part"
+		if propKey then
+			p:SetAttribute("Prop", propKey)
+			p:SetAttribute("PropId", propCount)
+		end
 		p.Parent = folder
 	end
 
@@ -263,7 +281,9 @@ function MapModule.build(): Model
 	-- Props --------------------------------------------------------------------------------
 
 	local function crate(x: number, y: number, z: number, s: number, yaw: number?)
-		box(CFrame.new(x, y + s / 2, z) * CFrame.Angles(0, yaw or 0, 0), Vector3.new(s, s, s), P.wood, "Crate")
+		prop("Crate", function()
+			box(CFrame.new(x, y + s / 2, z) * CFrame.Angles(0, yaw or 0, 0), Vector3.new(s, s, s), P.wood, "Crate")
+		end)
 	end
 
 	local function drums(x: number, z: number, n: number)
@@ -276,50 +296,62 @@ function MapModule.build(): Model
 
 	-- Derelict car: body + cabin + 4 wheels. Long axis along X before yaw.
 	local function car(x: number, z: number, yaw: number, st: Style)
-		local base = CFrame.new(x, 0, z) * CFrame.Angles(0, yaw, 0)
-		box(base * CFrame.new(0, 2.1, 0), Vector3.new(10, 2.2, 4.8), st, "CarBody")
-		box(base * CFrame.new(-0.6, 4.1, 0), Vector3.new(5.6, 1.8, 4.4), st, "CarCabin")
-		for _, w in { { -3.4, -2.3 }, { 3.4, -2.3 }, { -3.4, 2.3 }, { 3.4, 2.3 } } do
-			local p = Instance.new("Part")
-			p.Shape = Enum.PartType.Cylinder
-			p.Size = Vector3.new(0.9, 2, 2)
-			p.CFrame = base * CFrame.new(w[1], 1, w[2]) * CFrame.Angles(0, math.pi / 2, 0)
-			finish(p, P.rubber, "Wheel")
-		end
+		prop("Car", function()
+			local base = CFrame.new(x, 0, z) * CFrame.Angles(0, yaw, 0)
+			box(base * CFrame.new(0, 2.1, 0), Vector3.new(10, 2.2, 4.8), st, "CarBody")
+			box(base * CFrame.new(-0.6, 4.1, 0), Vector3.new(5.6, 1.8, 4.4), st, "CarCabin")
+			for _, w in { { -3.4, -2.3 }, { 3.4, -2.3 }, { -3.4, 2.3 }, { 3.4, 2.3 } } do
+				local p = Instance.new("Part")
+				p.Shape = Enum.PartType.Cylinder
+				p.Size = Vector3.new(0.9, 2, 2)
+				p.CFrame = base * CFrame.new(w[1], 1, w[2]) * CFrame.Angles(0, math.pi / 2, 0)
+				finish(p, P.rubber, "Wheel")
+			end
+		end)
 	end
 
 	-- Jersey barrier (2 parts) of length len, along X or Z.
 	local function barrier(x: number, z: number, len: number, alongZ: boolean)
-		local hx, hz = if alongZ then 1 else len / 2, if alongZ then len / 2 else 1
-		blk(x - hx, 0, z - hz, x + hx, 1.2, z + hz, P.concrete, "Barrier")
-		local tx, tz = if alongZ then 0.45 else len / 2, if alongZ then len / 2 else 0.45
-		blk(x - tx, 1.2, z - tz, x + tx, 3.6, z + tz, P.concrete, "Barrier")
+		prop("JerseyBarrier", function()
+			local hx, hz = if alongZ then 1 else len / 2, if alongZ then len / 2 else 1
+			blk(x - hx, 0, z - hz, x + hx, 1.2, z + hz, P.concrete, "Barrier")
+			local tx, tz = if alongZ then 0.45 else len / 2, if alongZ then len / 2 else 0.45
+			blk(x - tx, 1.2, z - tz, x + tx, 3.6, z + tz, P.concrete, "Barrier")
+		end)
 	end
 
 	-- Bench of length len along X or Z, back on the +side if back > 0.
 	local function bench(x: number, z: number, len: number, alongZ: boolean)
-		local hx, hz = if alongZ then 0.9 else len / 2, if alongZ then len / 2 else 0.9
-		blk(x - hx, 0, z - hz, x + hx, 1.6, z + hz, P.woodDark, "Bench")
-		local bx, bz = if alongZ then 0.25 else len / 2, if alongZ then len / 2 else 0.25
-		blk(x - bx, 1.6, z - bz, x + bx, 3.4, z + bz, P.wood, "BenchBack")
+		prop("Bench", function()
+			local hx, hz = if alongZ then 0.9 else len / 2, if alongZ then len / 2 else 0.9
+			blk(x - hx, 0, z - hz, x + hx, 1.6, z + hz, P.woodDark, "Bench")
+			local bx, bz = if alongZ then 0.25 else len / 2, if alongZ then len / 2 else 0.25
+			blk(x - bx, 1.6, z - bz, x + bx, 3.4, z + bz, P.wood, "BenchBack")
+		end)
 	end
 
 	local function lampPost(x: number, z: number, h: number)
-		cylY(x, 0, z, h, 0.8, P.metalDark, "LampPost")
-		blk(x - 0.5, h - 0.6, z - 0.5, x + 0.5, h + 0.4, z + 0.5, P.metal, "LampHead")
-		blk(x - 0.4, h - 1.0, z - 0.4, x + 0.4, h - 0.6, z + 0.4, P.lamp, "LampBulb")
+		prop("LampPost", function()
+			cylY(x, 0, z, h, 0.8, P.metalDark, "LampPost")
+			blk(x - 0.5, h - 0.6, z - 0.5, x + 0.5, h + 0.4, z + 0.5, P.metal, "LampHead")
+			blk(x - 0.4, h - 1.0, z - 0.4, x + 0.4, h - 0.6, z + 0.4, P.lamp, "LampBulb")
+		end)
 	end
 
 	local function vending(x: number, z: number, st: Style)
-		blk(x - 1.6, 0, z - 1.4, x + 1.6, 7, z + 1.4, st, "Vending")
-		blk(x - 1.2, 2.5, z - 1.5, x + 1.2, 6.2, z + 1.5, P.glass, "VendingGlass")
+		prop("VendingMachine", function()
+			blk(x - 1.6, 0, z - 1.4, x + 1.6, 7, z + 1.4, st, "Vending")
+			blk(x - 1.2, 2.5, z - 1.5, x + 1.2, 6.2, z + 1.5, P.glass, "VendingGlass")
+		end)
 	end
 
 	-- Shipping container occupying x0..x1 (along X), z0..z1, from y0 (9 tall).
 	local function container(x0: number, x1: number, z0: number, z1: number, y0: number, st: Style)
-		blk(x0 + 0.3, y0, z0, x1 - 0.3, y0 + 9, z1, st, "Container")
-		blk(x0, y0, z0 - 0.15, x0 + 0.6, y0 + 9, z1 + 0.15, P.rustDark, "ContainerFrame")
-		blk(x1 - 0.6, y0, z0 - 0.15, x1, y0 + 9, z1 + 0.15, P.rustDark, "ContainerFrame")
+		prop("Container", function()
+			blk(x0 + 0.3, y0, z0, x1 - 0.3, y0 + 9, z1, st, "Container")
+			blk(x0, y0, z0 - 0.15, x0 + 0.6, y0 + 9, z1 + 0.15, P.rustDark, "ContainerFrame")
+			blk(x1 - 0.6, y0, z0 - 0.15, x1, y0 + 9, z1 + 0.15, P.rustDark, "ContainerFrame")
+		end)
 	end
 
 	-------------------------------------------------------------------------------------------

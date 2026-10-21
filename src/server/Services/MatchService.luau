@@ -20,6 +20,7 @@ local DataService = require(script.Parent.DataService)
 local ProgressionService = require(script.Parent.ProgressionService)
 local PartyService = require(script.Parent.PartyService)
 local OperatorService = require(script.Parent.OperatorService)
+local EnvironmentService = require(script.Parent.EnvironmentService)
 local CombatService = require(script.Parent.CombatService)
 local KillstreakService = require(script.Parent.KillstreakService)
 local MovementGuard = require(script.Parent.MovementGuard)
@@ -241,6 +242,7 @@ local function loadMap(id: string)
 	mapId = id
 	CombatService.killY = model:GetAttribute("KillY") or -200
 	applyLighting(def)
+	EnvironmentService.dressMap(model, id)
 	stateDirty = true
 end
 
