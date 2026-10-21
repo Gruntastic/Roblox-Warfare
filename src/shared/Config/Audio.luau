@@ -2,7 +2,7 @@
 -- Sound effect slots. Put an uploaded audio asset id in each slot (a number, e.g. 1234567890).
 -- A slot left at 0 is silent, so sounds can be added one at a time. See docs/AUDIO_SFX.md for
 -- what each slot is for. Client playback: src/client/Controllers/SoundController.luau.
-export type Slot = { id: number, volume: number?, pitchJitter: number? }
+export type Slot = { id: number, volume: number?, pitchJitter: number?, pitch: number? } -- pitch: fixed offset, e.g. 0.15 = 15% higher
 
 local function s(volume: number?, pitchJitter: number?): Slot
 	return { id = 0, volume = volume, pitchJitter = pitchJitter }
@@ -32,8 +32,8 @@ local Audio: { [string]: Slot } = {
 	Melee = s(0.6, 0.05),
 	MeleeHit = s(0.7),
 	-- hits and feedback
-	HitMarker = s(0.5),
-	HitHeadshot = s(0.6),
+	HitMarker = { id = 84433276658992, volume = 0.5 }, -- "Machine Impact"
+	HitHeadshot = { id = 84433276658992, volume = 0.65, pitch = 0.18 }, -- same sound, pitched up
 	KillConfirm = s(0.6),
 	HurtPlayer = s(0.6, 0.05),
 	["Impact.Concrete"] = s(0.5, 0.08),

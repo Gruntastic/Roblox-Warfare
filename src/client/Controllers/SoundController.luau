@@ -52,7 +52,7 @@ function SoundController.play(name: string, position: Vector3?, pitch: number?)
 	end
 	local sound = template(name, slot):Clone()
 	local jitter = slot.pitchJitter or 0
-	sound.PlaybackSpeed = 1 + (pitch or 0) + (if jitter > 0 then rng:NextNumber(-jitter, jitter) else 0)
+	sound.PlaybackSpeed = 1 + (slot.pitch or 0) + (pitch or 0) + (if jitter > 0 then rng:NextNumber(-jitter, jitter) else 0)
 	if position then
 		local holder = Instance.new("Attachment")
 		holder.WorldPosition = position
