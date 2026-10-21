@@ -251,7 +251,7 @@ touches still need a phone or the device emulator). The Great Hall is visibly li
 - During the Phase 4 playtest Studio stopped drawing the 3D view for a few minutes (white screen,
   HUD still drawn; exposure changes had no effect). It recovered on its own and happened on two
   maps, so it is treated as a Studio/display issue on the test machine, not a game bug (07).
-- The game was renamed to "Roblox Blox Ops" (2026-10-20). The title check is in LAUNCH_READINESS.
+- The game was renamed to "Blox Ops" (2026-10-20). The title check is in LAUNCH_READINESS.
 - Studio sync is done through MCP scripts, not the Rojo plugin. `tools/studio_patch.py` sends only
   changed hunks with checksum verification, and `tools/studio_verify.py` audits the whole tree.
 
@@ -270,3 +270,20 @@ touches still need a phone or the device emulator). The Great Hall is visibly li
 ## Phase 8: testing and launch readiness
 
 See `docs/LAUNCH_READINESS.md` (verdict and blockers) and `docs/KNOWN_ISSUES.md`.
+
+## Phase 9: Blox Ops revamp
+
+- Renamed to **Blox Ops** (internal `COR_` identifiers kept).
+- **Staging screen**: the lobby is now a 3D hangar with the player in the centre and five squad
+  slots showing teammates' animated, geared avatars. Empty slots have INVITE buttons (server players
+  or a Roblox friend invite). The left nav opens Loadouts, Gunsmith, Perks, Killstreaks, Operator and
+  Barracks. QUEUE opens mode select; SHOP opens the store on the Loot Crates tab.
+- **Squads**: `PartyService` (invite, accept, leave, kick). The leader's mode pick queues the squad.
+- **Military gear**: eight gear sets (helmet with NVG, plate carrier with pouches, packs, belts, knee
+  pads, team armband). Ranger is the default, Woodland and Urban unlock at levels 10 and 25,
+  Desert Recon costs 3,000 credits, and four sets come from the new Gear Crate (earned every 5 levels;
+  crates are still earned only, never sold).
+- **Animations**: procedural operator poses (rifle carry, sprint, aim pitch synced to other clients,
+  idle staging poses) and geared viewmodel arms.
+- **Art**: 34 ForgeGUI images published to Roblox (docs/ASSETS.md); five jobs did not finish.
+- Not run in Studio yet: see KNOWN_ISSUES 18–21.

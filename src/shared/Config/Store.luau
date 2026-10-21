@@ -3,13 +3,13 @@
 --   * Everything sold or dropped is cosmetic (Config/Cosmetics `source` items). Nothing changes gameplay.
 --   * Credits are earned by play only. They are never sold for Robux, so nothing random is ever
 --     paid for, directly or through a currency.
---   * Supply crates are earned by play only (level-ups, finishing all three dailies). Their odds
---     are shown before opening, and they never give an item the player already owns.
+--   * Supply and Gear crates are earned by play only (level-ups, finishing all three dailies).
+--     Their odds are shown before opening, and they never give an item the player already owns.
 --   * Robux buys fixed, named bundles (developer products). The player always knows exactly what
 --     they get. Product ids are 0 until the owner creates the products on the published game; a
 --     bundle with id 0 is shown as unavailable and cannot be bought.
 
-export type Grant = { kind: string, id: string } -- kind: "Camo" | "Title" | "Emblem"
+export type Grant = { kind: string, id: string } -- kind: "Camo" | "Title" | "Emblem" | "Gear"
 
 export type ShopItem = {
 	id: string,
@@ -41,6 +41,7 @@ local shop: { ShopItem } = {
 	{ id = "CamoEmber", name = "Ember camo", price = 4000, grant = { kind = "Camo", id = "Ember" } },
 	{ id = "TitleQuartermaster", name = "Quartermaster title", price = 1500, grant = { kind = "Title", id = "Quartermaster" } },
 	{ id = "EmblemWolf", name = "Wolf emblem", price = 2000, grant = { kind = "Emblem", id = "Wolf" } },
+	{ id = "GearDesertRecon", name = "Desert Recon gear", price = 3000, grant = { kind = "Gear", id = "DesertRecon" } },
 }
 
 local crates: { CrateDef } = {
@@ -58,6 +59,18 @@ local crates: { CrateDef } = {
 			{ kind = "Emblem", id = "Anchor", weight = 10 },
 			{ kind = "Emblem", id = "Star", weight = 6 },
 			{ kind = "Emblem", id = "Skull", weight = 4 },
+		},
+	},
+	{
+		-- operator gear sets (Config/Gear source "crate")
+		id = "Gear",
+		name = "Gear Crate",
+		duplicateCredits = 750,
+		pool = {
+			{ kind = "Gear", id = "Jungle", weight = 35 },
+			{ kind = "Gear", id = "Arctic", weight = 30 },
+			{ kind = "Gear", id = "Highlander", weight = 20 },
+			{ kind = "Gear", id = "NightOps", weight = 15 },
 		},
 	},
 }
@@ -95,6 +108,7 @@ local Store = {
 	-- Crates earned by play
 	CratePerLevelUp = 1, -- per account level gained (and per prestige)
 	CrateForAllDailies = 1, -- once per day, when all daily challenges are done
+	GearCrateEveryLevels = 5, -- one Gear Crate each time the account reaches a multiple of this level
 	MaxCredits = 1000000,
 	MaxCrates = 99,
 	ReceiptRetentionDays = 120, -- processed purchase ids kept this long (Roblox retries for 3 days)

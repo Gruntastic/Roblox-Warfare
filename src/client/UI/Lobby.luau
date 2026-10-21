@@ -1,13 +1,18 @@
 --!strict
--- Lobby / pre-deploy screen: title, match info + phase timer, operators by team, next-match vote
--- (MatchState.options: map + mode cards),
--- loadout slots + editor (weapon picker grouped by class, unlock gating, weapon levels, Gunsmith
--- entry points for attachments), account rank + XP bar, DataStore-offline warning and the DEPLOY
--- button for late joiners / respawn fallback.
--- Phase 5: the editor has WEAPONS / PERKS / KILLSTREAKS tabs (perks: one per tier; killstreaks: up
--- to three, costs shown after Hardline), loadout rows list the perks, operator rows show titles and
--- prestige emblems, the rank badge shows the prestige emblem and a BARRACKS button opens UI/Barracks.
+-- Lobby / staging screen, drawn over the 3D staging room (Controllers/StagingScene) where the
+-- player's operator stands with up to five squad mates (UI/Squad draws their name plates and the
+-- INVITE buttons on empty slots).
+--   * top: Blox Ops logo, credits, account rank + XP bar, DataStore-offline warning
+--   * left side menu: LOADOUTS / PERKS / KILLSTREAKS / OPERATOR open the loadout drawer (slots +
+--     editor with weapon picker grouped by class, unlock gating, weapon levels, perks one per tier,
+--     up to three killstreaks, operator gear sets); GUNSMITH opens the Gunsmith on the primary;
+--     BARRACKS opens UI/Barracks
+--   * right: match info + phase timer, operators by team, next-match vote (map art on each card)
+--   * bottom right: SHOP (UI/Store, crates first) and QUEUE, which opens the mode select
+--     (UI/PlayMenu); once queued it turns into DEPLOY for late joiners / respawn fallback, with
+--     LEAVE QUEUE and the queue status beside it.
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Theme = require(script.Parent.Theme)
@@ -17,6 +22,8 @@ local StoreMenu = require(script.Parent.Store)
 local PlayMenu = require(script.Parent.PlayMenu)
 local StoreRulesUI = require(script.Parent.StoreRulesUI)
 local Phase5Rules = require(script.Parent.Phase5Rules)
+local Squad = require(script.Parent.Squad)
+local StagingScene = require(script.Parent.Parent.Controllers.StagingScene)
 local ClientState = require(script.Parent.Parent.ClientState)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
@@ -26,6 +33,8 @@ local AttachmentsConfig = require(Shared.Config.Attachments)
 local PerksConfig = require(Shared.Config.Perks)
 local KillstreaksConfig = require(Shared.Config.Killstreaks)
 local StreakRules = require(Shared.Pure.StreakRules)
+local Assets = require(Shared.Config.Assets)
+local GearConfig = require(Shared.Config.Gear)
 
 local Lobby = {}
 
@@ -69,7 +78,7 @@ local draft: Draft? = nil
 local myVote: string? = nil
 local savePending = false
 local saveToken = 0
-local editorTab = "Weapons" -- "Weapons" | "Perks" | "Streaks"
+local editorTab = "Weapons" -- "Weapons" | "Perks" | "Streaks" | "Operator"
 local PERK_TIERS = Phase5Rules.perkTiers(PerksConfig.list)
 local TIER_TITLES = { "TIER 1  //  MOVEMENT & TEMPO", "TIER 2  //  WEAPON HANDLING", "TIER 3  //  SURVIVAL & INTEL" }
 
@@ -80,7 +89,6 @@ local rankFill: Frame
 local prestigeLabel: TextLabel
 local rankBadge: Frame
 local rankEmblemHolder: Frame
-local barracksButton: TextButton
 local barracksSub: TextLabel
 local storeSub: TextLabel
 local tabButtons: { [string]: TextButton } = {}
@@ -105,8 +113,13 @@ local summaryRows: { [string]: SummaryRow } = {}
 local saveButton: TextButton
 local saveStatus: TextLabel
 local deployButton: TextButton
+local deployLabel: TextLabel
 local changeModeButton: TextButton
 local bottomStatus: TextLabel
+local drawer: Frame
+local navButtons: { [string]: TextButton } = {}
+local creditsLabel: TextLabel
+local renderConn: RBXScriptConnection? = nil
 
 ---------------------------------------------------------------------------------------------
 -- helpers
@@ -359,7 +372,10 @@ local function refreshRank()
 	local store = (profile :: any).store
 	if type(store) == "table" and type(store.credits) == "number" then
 		local crates = if type(store.crates) == "table" then store.crates.Supply or 0 else 0
-		storeSub.Text = StoreRulesUI.credits(store.credits) .. (if crates > 0 then string.format("  ·  %d CRATE%s", crates, if crates == 1 then "" else "S") else "")
+		local gearCrates = if type(store.crates) == "table" then store.crates.Gear or 0 else 0
+		crates += gearCrates
+		storeSub.Text = if crates > 0 then string.format("%d CRATE%s TO OPEN", crates, if crates == 1 then "" else "S") else "CRATES · GEAR · CAMOS"
+		creditsLabel.Text = StoreRulesUI.credits(store.credits)
 	end
 end
 
@@ -983,6 +999,121 @@ local function streaksSection(profile: Types.ProfileSummary)
 	end
 end
 
+-- Operator gear sets (Config/Gear): what the player wears in matches and in the staging room.
+local function gearCard(profile: Types.ProfileSummary, def: GearConfig.GearDef, order: number, parent: Instance)
+	local cos = profile.cosmetics
+	local owned = cos ~= nil and table.find(cos.owned.gears or {}, def.id) ~= nil
+	local equippedId = if cos and cos.equipped.gear then cos.equipped.gear else GearConfig.Default
+	local equipped = equippedId == def.id
+	local card = Theme.button({
+		Name = def.id,
+		Size = UDim2.new(1, -6, 0, 86),
+		LayoutOrder = order,
+		Parent = parent,
+	})
+	Theme.setButtonColor(card, if equipped then C.PanelHover else C.PanelLight)
+	if equipped then
+		Theme.stroke(C.Accent, 1, 0.15).Parent = card
+	end
+	-- kit swatches: helmet, vest, uniform, gloves
+	for i, color in { def.helmet, def.vest, def.shirt, def.gloves } do
+		Theme.new("Frame", {
+			BackgroundColor3 = color,
+			BorderSizePixel = 0,
+			Position = UDim2.fromOffset(12 + (i - 1) * 20, 14),
+			Size = UDim2.fromOffset(16, 58),
+			Parent = card,
+		}, { Theme.corner(3) })
+	end
+	Theme.label({
+		Text = string.upper(def.name),
+		Font = Theme.Fonts.Bold,
+		TextSize = 18,
+		TextColor3 = if owned then C.Text else C.TextDim,
+		Position = UDim2.fromOffset(104, 10),
+		Size = UDim2.new(1, -250, 0, 24),
+		Parent = card,
+	})
+	local kit = {}
+	if def.nvg then
+		table.insert(kit, "NIGHT VISION")
+	end
+	if def.headset then
+		table.insert(kit, "HEADSET")
+	end
+	if def.pack then
+		table.insert(kit, string.upper(def.pack) .. " PACK")
+	end
+	if def.faceWrap then
+		table.insert(kit, "FACE WRAP")
+	end
+	Theme.label({
+		Text = def.description,
+		Font = Theme.Fonts.Regular,
+		TextSize = 13,
+		TextColor3 = C.TextDim,
+		Position = UDim2.fromOffset(104, 36),
+		Size = UDim2.new(1, -250, 0, 18),
+		Parent = card,
+	})
+	Theme.label({
+		Text = table.concat(kit, "  ·  "),
+		Font = Theme.Fonts.Bold,
+		TextSize = 11,
+		TextColor3 = C.TextMuted,
+		Position = UDim2.fromOffset(104, 58),
+		Size = UDim2.new(1, -250, 0, 16),
+		Parent = card,
+	})
+	local status = if equipped
+		then "EQUIPPED"
+		elseif owned then "EQUIP"
+		elseif def.source == "shop" then "IN SHOP"
+		elseif def.source == "crate" then "GEAR CRATE"
+		else "RANK " .. tostring(def.level)
+	Theme.label({
+		Text = status,
+		Font = Theme.Fonts.Bold,
+		TextSize = 14,
+		TextColor3 = if equipped or owned then C.Accent else C.TextMuted,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -14, 0.5, 0),
+		Size = UDim2.fromOffset(130, 20),
+		Parent = card,
+	})
+	card.Activated:Connect(function()
+		if owned and not equipped then
+			fire("EquipCosmetic", "Gear", def.id)
+		elseif not owned and def.source ~= nil then
+			if StoreMenu.open(function()
+				if shown then
+					mainFrame.Visible = true
+				end
+			end) then
+				mainFrame.Visible = false
+			end
+		end
+	end)
+end
+
+local function operatorSection(profile: Types.ProfileSummary)
+	sectionTitle("OPERATOR GEAR  //  WORN IN EVERY MATCH", editorBody, 0)
+	for i, def in GearConfig.sets do
+		gearCard(profile, def, i, editorBody)
+	end
+	Theme.label({
+		Text = "Gear is cosmetic. Your team shows on your armband and helmet strobe whatever you wear.",
+		Font = Theme.Fonts.Regular,
+		TextSize = 12,
+		TextColor3 = C.TextMuted,
+		TextWrapped = true,
+		Size = UDim2.new(1, -6, 0, 32),
+		LayoutOrder = #GearConfig.sets + 1,
+		Parent = editorBody,
+	})
+end
+
 local function refreshTabs()
 	for name, button in tabButtons do
 		local on = name == editorTab
@@ -1018,7 +1149,9 @@ rebuildEditor = function()
 	end
 	editorTitle.Text = "EDIT  //  " .. string.upper(lo.name ~= "" and lo.name or ("Loadout " .. tostring(editIndex)))
 	refreshTabs()
-	if editorTab == "Perks" then
+	if editorTab == "Operator" then
+		operatorSection(profile)
+	elseif editorTab == "Perks" then
 		perksSection(profile)
 	elseif editorTab == "Streaks" then
 		streaksSection(profile)
@@ -1190,6 +1323,31 @@ local function voteCard(option: Types.VoteOption, order: number): TextButton
 	local stroke = Theme.stroke(C.Accent, 2, 1)
 	stroke.Name = "VoteStroke"
 	stroke.Parent = button
+	-- ForgeGUI map art behind the text, faded towards the right for the vote count
+	local art = Assets.image("Map." .. tostring(option.mapId))
+	if art then
+		button.ClipsDescendants = true
+		local image = Theme.new("ImageLabel", {
+			Name = "MapArt",
+			BackgroundTransparency = 1,
+			Image = art,
+			ImageTransparency = 0.35,
+			ScaleType = Enum.ScaleType.Crop,
+			Size = UDim2.fromScale(1, 1),
+			ZIndex = 0,
+			Parent = button,
+		})
+		Theme.new("UIGradient", {
+			Color = ColorSequence.new(Color3.new(1, 1, 1)),
+			Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0),
+				NumberSequenceKeypoint.new(0.55, 0.3),
+				NumberSequenceKeypoint.new(1, 0.85),
+			}),
+			Parent = image,
+		})
+		Theme.new("UICorner", { CornerRadius = UDim.new(0, 6), Parent = image })
+	end
 	Theme.new("Frame", {
 		Name = "Marker",
 		BackgroundColor3 = C.Accent,
@@ -1394,16 +1552,18 @@ local function refreshDeploy()
 		and pick ~= nil
 		and (pick == "Any" or pick == ms.modeId)
 	if pick == nil then
-		deployButton.Text = "SELECT MODE"
+		deployLabel.Text = "QUEUE"
 		deployButton.Visible = true
 	else
-		if deployButton.Text == "SELECT MODE" then
-			deployButton.Text = "DEPLOY"
+		if deployLabel.Text == "QUEUE" then
+			deployLabel.Text = "DEPLOY"
 		end
 		deployButton.Visible = canDeploy
 	end
 	bottomStatus.Visible = not deployButton.Visible
 	changeModeButton.Visible = pick ~= nil
+	-- LEAVE QUEUE sits under the status line, or above DEPLOY when that is showing
+	changeModeButton.Position = UDim2.new(1, -48, 1, if deployButton.Visible then -128 else -36)
 end
 
 local function setShown(show: boolean)
@@ -1413,10 +1573,12 @@ local function setShown(show: boolean)
 	shown = show
 	if show then
 		gui.Enabled = true
-		root.BackgroundTransparency = 1
-		Theme.tween(root, Theme.Tween.Slow, { BackgroundTransparency = 0.3 })
-		mainFrame.Position = UDim2.fromOffset(48, 208)
-		Theme.tween(mainFrame, Theme.Tween.Slow, { Position = UDim2.fromOffset(48, 178) })
+		StagingScene.setActive(true)
+		mainFrame.Position = UDim2.fromOffset(0, 30)
+		Theme.tween(mainFrame, Theme.Tween.Slow, { Position = UDim2.fromOffset(0, 0) })
+		if not renderConn then
+			renderConn = RunService.RenderStepped:Connect(Squad.update)
+		end
 		rebuildPlayers()
 		rebuildSlots()
 		rebuildEditor()
@@ -1424,6 +1586,12 @@ local function setShown(show: boolean)
 		Gunsmith.close() -- e.g. the match deploys while the Gunsmith is open
 		Barracks.close()
 		StoreMenu.close()
+		Squad.closeInvites()
+		StagingScene.setActive(false)
+		if renderConn then
+			renderConn:Disconnect()
+			renderConn = nil
+		end
 		gui.Enabled = false
 	end
 end
@@ -1437,6 +1605,52 @@ end
 -- Build
 ---------------------------------------------------------------------------------------------
 
+-- Opens a full-screen menu over the lobby; the lobby widgets hide until it closes.
+local function anyMenuOpen(): boolean
+	return Gunsmith.isOpen() or Barracks.isOpen() or StoreMenu.isOpen()
+end
+
+local function restoreLobby()
+	if shown then
+		mainFrame.Visible = true
+	end
+end
+
+local function openStore(tab: string?)
+	if anyMenuOpen() then
+		return
+	end
+	if StoreMenu.open(restoreLobby, tab) then
+		mainFrame.Visible = false
+	end
+end
+
+local function openBarracks()
+	if anyMenuOpen() then
+		return
+	end
+	if Barracks.open(nil, restoreLobby) then
+		mainFrame.Visible = false
+	end
+end
+
+-- ForgeGUI icon in front of a nav label; nil when the asset is not published yet.
+local function navIcon(key: string, parent: Instance): ImageLabel?
+	local image = Assets.image(key)
+	if not image then
+		return nil
+	end
+	return Theme.new("ImageLabel", {
+		BackgroundTransparency = 1,
+		Image = image,
+		ScaleType = Enum.ScaleType.Fit,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 14, 0.5, 0),
+		Size = UDim2.fromOffset(34, 34),
+		Parent = parent,
+	})
+end
+
 local function buildTopBar(parent: Instance)
 	local top: Frame = Theme.new("Frame", {
 		Name = "TopBar",
@@ -1445,31 +1659,46 @@ local function buildTopBar(parent: Instance)
 		Size = UDim2.new(1, -96, 0, 88),
 		Parent = parent,
 	})
-	-- Original text logo: stacked "ROBLOX" / "BLOX OPS" with an accent chevron bar.
-	local logo: Frame = Theme.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(460, 88), Parent = top })
-	Theme.new("Frame", {
-		BackgroundColor3 = C.Accent,
-		BorderSizePixel = 0,
-		Position = UDim2.fromOffset(0, 8),
-		Size = UDim2.fromOffset(8, 72),
-		Parent = logo,
-	})
-	Theme.label({
-		Text = "R O B L O X",
-		Font = Theme.Fonts.Bold,
-		TextSize = 18,
-		TextColor3 = C.Accent,
-		Position = UDim2.fromOffset(22, 6),
-		Size = UDim2.fromOffset(420, 22),
-		Parent = logo,
-	})
+	-- Logo: ForgeGUI emblem (falls back to an amber chevron bar) + the BLOX OPS wordmark in type.
+	local logo: Frame = Theme.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(520, 88), Parent = top })
+	local emblem = Assets.image("Emblem")
+	local textX = 22
+	if emblem then
+		Theme.new("ImageLabel", {
+			Name = "Emblem",
+			BackgroundTransparency = 1,
+			Image = emblem,
+			ScaleType = Enum.ScaleType.Fit,
+			Size = UDim2.fromOffset(84, 84),
+			Parent = logo,
+		})
+		textX = 96
+	else
+		Theme.new("Frame", {
+			BackgroundColor3 = C.Accent,
+			BorderSizePixel = 0,
+			Position = UDim2.fromOffset(0, 8),
+			Size = UDim2.fromOffset(8, 72),
+			Parent = logo,
+		})
+	end
 	Theme.label({
 		Text = "BLOX OPS",
 		Font = Theme.Fonts.Title,
-		TextSize = 56,
+		TextSize = 58,
 		TextColor3 = C.Text,
-		Position = UDim2.fromOffset(20, 26),
+		TextStrokeTransparency = 0.6,
+		Position = UDim2.fromOffset(textX, 8),
 		Size = UDim2.fromOffset(420, 58),
+		Parent = logo,
+	})
+	Theme.label({
+		Text = "T A C T I C A L   O P E R A T I O N S",
+		Font = Theme.Fonts.Bold,
+		TextSize = 13,
+		TextColor3 = C.Accent,
+		Position = UDim2.fromOffset(textX + 4, 64),
+		Size = UDim2.fromOffset(420, 18),
 		Parent = logo,
 	})
 
@@ -1535,91 +1764,134 @@ local function buildTopBar(parent: Instance)
 	})
 	rankFill = fill
 
-	-- Phase 5: BARRACKS (challenges, career, titles & emblems, prestige)
-	barracksButton = Theme.button({
-		Name = "Barracks",
-		Text = "",
+	-- credits, left of the rank badge
+	local wallet = Theme.panel({
+		Name = "Credits",
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -396, 0, 6),
 		Size = UDim2.fromOffset(220, 76),
 		Parent = top,
 	})
-	Theme.stroke(C.Accent, 1, 0.35).Parent = barracksButton
+	local coin = navIcon("Icon.Credits", wallet)
 	Theme.label({
-		Text = "BARRACKS",
-		Font = Theme.Fonts.Title,
-		TextSize = 22,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Position = UDim2.fromOffset(0, 12),
-		Size = UDim2.new(1, 0, 0, 28),
-		Parent = barracksButton,
-	})
-	barracksSub = Theme.label({
-		Text = "CHALLENGES · CAREER",
+		Text = "CREDITS",
 		Font = Theme.Fonts.Bold,
 		TextSize = 12,
-		TextColor3 = C.Accent,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Position = UDim2.fromOffset(0, 44),
-		Size = UDim2.new(1, 0, 0, 16),
-		Parent = barracksButton,
+		TextColor3 = C.TextMuted,
+		Position = UDim2.fromOffset(if coin then 58 else 16, 12),
+		Size = UDim2.new(1, -70, 0, 16),
+		Parent = wallet,
 	})
-	-- Phase 6: STORE (shop, supply crates, premium bundles)
-	local storeButton = Theme.button({
-		Name = "StoreButton",
-		Text = "",
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -628, 0, 6),
-		Size = UDim2.fromOffset(220, 76),
-		Parent = top,
-	})
-	Theme.stroke(C.Accent, 1, 0.35).Parent = storeButton
-	Theme.label({
-		Text = "STORE",
+	creditsLabel = Theme.label({
+		Text = "-",
 		Font = Theme.Fonts.Title,
-		TextSize = 22,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Position = UDim2.fromOffset(0, 12),
-		Size = UDim2.new(1, 0, 0, 28),
-		Parent = storeButton,
-	})
-	storeSub = Theme.label({
-		Text = "SHOP · CRATES",
-		Font = Theme.Fonts.Bold,
-		TextSize = 12,
+		TextSize = 26,
 		TextColor3 = C.Accent,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Position = UDim2.fromOffset(0, 44),
-		Size = UDim2.new(1, 0, 0, 16),
-		Parent = storeButton,
+		Position = UDim2.fromOffset(if coin then 58 else 16, 30),
+		Size = UDim2.new(1, -70, 0, 32),
+		Parent = wallet,
 	})
-	storeButton.Activated:Connect(function()
-		if Gunsmith.isOpen() or Barracks.isOpen() or StoreMenu.isOpen() then
-			return
-		end
-		local opened = StoreMenu.open(function()
-			if shown then
-				mainFrame.Visible = true
-			end
-		end)
-		if opened then
-			mainFrame.Visible = false
-		end
-	end)
+end
 
-	barracksButton.Activated:Connect(function()
-		if Gunsmith.isOpen() or Barracks.isOpen() or StoreMenu.isOpen() then
-			return
+-- Left side menu: the loadout editor tabs (in the drawer), Gunsmith, Barracks and the Shop.
+local function setDrawer(tab: string?)
+	if tab == nil then
+		drawer.Visible = false
+	else
+		if editorTab ~= tab then
+			editorTab = tab
+			editorBody.CanvasPosition = Vector2.zero
 		end
-		local opened = Barracks.open(nil, function()
-			if shown then
-				mainFrame.Visible = true
+		drawer.Visible = true
+		drawer.Position = UDim2.fromOffset(360, 160)
+		Theme.tween(drawer, Theme.Tween.Normal, { Position = UDim2.fromOffset(384, 160) })
+		rebuildSlots()
+		rebuildEditor()
+	end
+	for id, button in navButtons do
+		local on = drawer.Visible and id == editorTab
+		Theme.setButtonColor(button, if on then C.PanelHover else C.Panel)
+		local marker = button:FindFirstChild("Marker") :: Frame?
+		if marker then
+			marker.Visible = on
+		end
+	end
+end
+
+local function buildNav(parent: Instance)
+	local nav: Frame = Theme.new("Frame", {
+		Name = "Nav",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(48, 160),
+		Size = UDim2.fromOffset(312, 620),
+		Parent = parent,
+	}, { Theme.list(Enum.FillDirection.Vertical, 8) })
+	local items = {
+		{ id = "Weapons", text = "LOADOUTS", sub = "CLASSES & WEAPONS", icon = "Icon.Loadout" },
+		{ id = "Gunsmith", text = "GUNSMITH", sub = "BUILD YOUR PRIMARY", icon = "Icon.Gunsmith" },
+		{ id = "Perks", text = "PERKS", sub = "ONE PER TIER", icon = "Icon.Perks" },
+		{ id = "Streaks", text = "KILLSTREAKS", sub = "UP TO THREE", icon = "Icon.Streaks" },
+		{ id = "Operator", text = "OPERATOR", sub = "GEAR & UNIFORM", icon = "Icon.Operator" },
+		{ id = "Barracks", text = "BARRACKS", sub = "CHALLENGES · CAREER", icon = "Icon.Barracks" },
+	}
+	for i, item in items do
+		local button = Theme.button({
+			Name = item.id,
+			Size = UDim2.new(1, 0, 0, 66),
+			BackgroundTransparency = 0.15,
+			LayoutOrder = i,
+			Parent = nav,
+		})
+		Theme.setButtonColor(button, C.Panel)
+		Theme.new("Frame", {
+			Name = "Marker",
+			BackgroundColor3 = C.Accent,
+			BorderSizePixel = 0,
+			Size = UDim2.new(0, 4, 1, 0),
+			Visible = false,
+			Parent = button,
+		})
+		local glyph = navIcon(item.icon, button)
+		local x = if glyph then 60 else 18
+		Theme.label({
+			Text = item.text,
+			Font = Theme.Fonts.Title,
+			TextSize = 21,
+			Position = UDim2.fromOffset(x, 10),
+			Size = UDim2.new(1, -x - 10, 0, 26),
+			Parent = button,
+		})
+		local sub = Theme.label({
+			Text = item.sub,
+			Font = Theme.Fonts.Bold,
+			TextSize = 11,
+			TextColor3 = C.Accent,
+			Position = UDim2.fromOffset(x, 38),
+			Size = UDim2.new(1, -x - 10, 0, 16),
+			Parent = button,
+		})
+		if item.id == "Barracks" then
+			barracksSub = sub
+		end
+		navButtons[item.id] = button
+		button.Activated:Connect(function()
+			if anyMenuOpen() then
+				return
+			end
+			if item.id == "Barracks" then
+				openBarracks()
+			elseif item.id == "Gunsmith" then
+				if not draft then
+					rebuildEditor()
+				end
+				openGunsmith("Primary")
+			elseif drawer.Visible and editorTab == item.id then
+				setDrawer(nil)
+			else
+				setDrawer(item.id)
 			end
 		end)
-		if opened then
-			mainFrame.Visible = false
-		end
-	end)
+	end
 end
 
 local function buildWarning(parent: Instance)
@@ -1647,7 +1919,7 @@ end
 
 local function buildLoadoutColumns(parent: Instance)
 	-- left: slots
-	local slotsPanel = Theme.panel({ Name = "Loadouts", Size = UDim2.new(0.22, -14, 1, 0), LayoutOrder = 1, Parent = parent })
+	local slotsPanel = Theme.panel({ Name = "Loadouts", Size = UDim2.new(0.34, -8, 1, 0), LayoutOrder = 1, Parent = parent })
 	Theme.padding(14).Parent = slotsPanel
 	sectionTitle("LOADOUTS", slotsPanel)
 	slotList = Theme.new("ScrollingFrame", {
@@ -1662,7 +1934,7 @@ local function buildLoadoutColumns(parent: Instance)
 	}, { Theme.list(Enum.FillDirection.Vertical, 8) })
 
 	-- middle: editor
-	local editor = Theme.panel({ Name = "Editor", Size = UDim2.new(0.43, -14, 1, 0), LayoutOrder = 2, Parent = parent })
+	local editor = Theme.panel({ Name = "Editor", Size = UDim2.new(0.66, -8, 1, 0), LayoutOrder = 2, Parent = parent })
 	Theme.padding(14).Parent = editor
 	editorTitle = sectionTitle("LOADING PROFILE...", editor)
 
@@ -1727,12 +1999,12 @@ local function buildLoadoutColumns(parent: Instance)
 		Size = UDim2.new(1, 0, 0, 38),
 		Parent = editor,
 	}, { Theme.list(Enum.FillDirection.Horizontal, 8) })
-	for i, spec in { { id = "Weapons", text = "WEAPONS" }, { id = "Perks", text = "PERKS" }, { id = "Streaks", text = "KILLSTREAKS" } } do
+	for i, spec in { { id = "Weapons", text = "WEAPONS" }, { id = "Perks", text = "PERKS" }, { id = "Streaks", text = "STREAKS" }, { id = "Operator", text = "OPERATOR" } } do
 		local tab = Theme.button({
 			Name = spec.id,
 			Text = spec.text,
-			TextSize = 15,
-			Size = UDim2.new(1 / 3, -6, 1, 0),
+			TextSize = 14,
+			Size = UDim2.new(1 / 4, -6, 1, 0),
 			LayoutOrder = i,
 			Parent = tabRow,
 		})
@@ -1788,8 +2060,9 @@ local function buildRightColumn(parent: Instance)
 	local col: Frame = Theme.new("Frame", {
 		Name = "Match",
 		BackgroundTransparency = 1,
-		Size = UDim2.new(0.35, 0, 1, 0),
-		LayoutOrder = 3,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -48, 0, 160),
+		Size = UDim2.new(0, 430, 1, -160 - 150),
 		Parent = parent,
 	})
 
@@ -1854,71 +2127,164 @@ local function buildRightColumn(parent: Instance)
 end
 
 local function buildBottom(parent: Instance)
+	-- QUEUE (bottom right): opens the mode select; once queued it deploys into a running match
 	deployButton = Theme.button({
 		Name = "Deploy",
-		Text = "DEPLOY",
-		Font = Theme.Fonts.Title,
-		TextSize = 34,
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -28),
-		Size = UDim2.fromOffset(380, 74),
+		Text = "",
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -48, 1, -36),
+		Size = UDim2.fromOffset(430, 84),
 		Visible = false,
 		Parent = parent,
 	}, "Primary")
+	local queueIcon = Assets.image("Icon.Queue")
+	if queueIcon then
+		Theme.new("ImageLabel", {
+			BackgroundTransparency = 1,
+			Image = queueIcon,
+			ImageColor3 = C.OnAccent,
+			ScaleType = Enum.ScaleType.Fit,
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 22, 0.5, 0),
+			Size = UDim2.fromOffset(48, 48),
+			Parent = deployButton,
+		})
+	end
+	deployLabel = Theme.label({
+		Name = "Label",
+		Text = "QUEUE",
+		Font = Theme.Fonts.Title,
+		TextSize = 38,
+		TextColor3 = C.OnAccent,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Size = UDim2.fromScale(1, 1),
+		Parent = deployButton,
+	})
+	-- a slow pulse so the main call to action reads at a glance
+	local pulse = Theme.stroke(C.Accent, 3, 0.2)
+	pulse.Parent = deployButton
+	task.spawn(function()
+		while true do
+			Theme.tween(pulse, TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { Thickness = 7, Transparency = 0.85 }).Completed:Wait()
+			pulse.Thickness, pulse.Transparency = 3, 0.2
+		end
+	end)
 	deployButton.Activated:Connect(function()
 		if queuedPick() == nil then
 			PlayMenu.open()
 			return
 		end
 		fire("RequestDeploy")
-		deployButton.Text = "DEPLOYING..."
+		deployLabel.Text = "DEPLOYING..."
 		task.delay(3, function()
-			deployButton.Text = "DEPLOY"
+			deployLabel.Text = "DEPLOY"
 		end)
 	end)
+
+	-- SHOP, left of QUEUE: crates first
+	local shop = Theme.button({
+		Name = "Shop",
+		Text = "",
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -48 - 430 - 14, 1, -36),
+		Size = UDim2.fromOffset(240, 84),
+		BackgroundTransparency = 0.1,
+		Parent = parent,
+	})
+	Theme.stroke(C.Accent, 1, 0.3).Parent = shop
+	local shopGlyph = navIcon("Icon.Shop", shop)
+	local sx = if shopGlyph then 60 else 0
+	Theme.label({
+		Text = "SHOP",
+		Font = Theme.Fonts.Title,
+		TextSize = 26,
+		TextXAlignment = if shopGlyph then Enum.TextXAlignment.Left else Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(sx, 14),
+		Size = UDim2.new(1, -sx, 0, 30),
+		Parent = shop,
+	})
+	storeSub = Theme.label({
+		Text = "CRATES · GEAR · CAMOS",
+		Font = Theme.Fonts.Bold,
+		TextSize = 11,
+		TextColor3 = C.Accent,
+		TextXAlignment = if shopGlyph then Enum.TextXAlignment.Left else Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(sx, 48),
+		Size = UDim2.new(1, -sx - 8, 0, 16),
+		Parent = shop,
+	})
+	shop.Activated:Connect(function()
+		openStore("Crates")
+	end)
+
 	bottomStatus = Theme.label({
 		Font = Theme.Fonts.Bold,
-		TextSize = 20,
-		TextColor3 = C.TextDim,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -44),
-		Size = UDim2.fromOffset(700, 30),
+		TextSize = 18,
+		TextColor3 = C.Text,
+		TextStrokeTransparency = 0.5,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -48, 1, -128),
+		Size = UDim2.fromOffset(900, 26),
 		Parent = parent,
 	})
 	changeModeButton = Theme.button({
 		Name = "ChangeMode",
-		Text = "CHANGE MODE",
+		Text = "LEAVE QUEUE",
 		TextSize = 16,
 		AnchorPoint = Vector2.new(1, 1),
 		Position = UDim2.new(1, -48, 1, -36),
-		Size = UDim2.fromOffset(200, 46),
+		Size = UDim2.fromOffset(430, 46),
 		Visible = false,
 		Parent = parent,
 	})
 	changeModeButton.Activated:Connect(function()
-		fire("JoinQueue", nil) -- leave the queue; the mode select opens again
+		fire("JoinQueue", nil) -- leave the queue; QUEUE opens the mode select again
 	end)
 end
 
 function Lobby.init()
 	local canvas
 	gui, canvas = Theme.screen("Lobby", 10)
+	-- transparent middle so the 3D staging room shows; dark edges keep the side panels readable
 	root = Theme.new("Frame", {
 		Name = "Lobby",
-		BackgroundColor3 = C.Backdrop,
-		BackgroundTransparency = 0.3,
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Size = UDim2.fromScale(1, 1),
 		Parent = canvas,
 	})
-	Theme.new("UIGradient", {
-		Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0),
-			NumberSequenceKeypoint.new(0.6, 0.25),
-			NumberSequenceKeypoint.new(1, 0.1),
-		}),
+	for _, side in { { x = 0, rot = 0 }, { x = 1, rot = 180 } } do
+		Theme.new("Frame", {
+			Name = "EdgeShade",
+			BackgroundColor3 = C.Backdrop,
+			BorderSizePixel = 0,
+			AnchorPoint = Vector2.new(side.x, 0),
+			Position = UDim2.fromScale(side.x, 0),
+			Size = UDim2.fromScale(0.42, 1),
+			Parent = root,
+		}, {
+			Theme.new("UIGradient", {
+				Rotation = side.rot,
+				Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 0.2),
+					NumberSequenceKeypoint.new(0.6, 0.75),
+					NumberSequenceKeypoint.new(1, 1),
+				}),
+			}),
+		})
+	end
+	Theme.new("Frame", {
+		Name = "TopShade",
+		BackgroundColor3 = C.Backdrop,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, 150),
 		Parent = root,
+	}, {
+		Theme.new("UIGradient", {
+			Rotation = 90,
+			Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(1, 1) }),
+		}),
 	})
 	gui.Enabled = false
 
@@ -1927,13 +2293,38 @@ function Lobby.init()
 	mainFrame = Theme.new("Frame", {
 		Name = "Main",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(48, 178),
-		Size = UDim2.new(1, -96, 1, -178 - 120),
+		Size = UDim2.fromScale(1, 1),
 		Parent = root,
-	}, { Theme.list(Enum.FillDirection.Horizontal, 20) })
-	buildLoadoutColumns(mainFrame)
+	})
+	Squad.build(mainFrame)
+	buildNav(mainFrame)
+	drawer = Theme.new("Frame", {
+		Name = "Drawer",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(384, 160),
+		Size = UDim2.new(0, 860, 1, -160 - 150),
+		Visible = false,
+		Parent = mainFrame,
+	}, { Theme.list(Enum.FillDirection.Horizontal, 16) })
+	buildLoadoutColumns(drawer)
+	local closeDrawer = Theme.button({
+		Name = "CloseDrawer",
+		Text = "CLOSE",
+		TextSize = 14,
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(0, 384 + 860, 0, 156),
+		Size = UDim2.fromOffset(110, 32),
+		Parent = mainFrame,
+	})
+	closeDrawer.Activated:Connect(function()
+		setDrawer(nil)
+	end)
+	drawer:GetPropertyChangedSignal("Visible"):Connect(function()
+		closeDrawer.Visible = drawer.Visible
+	end)
+	closeDrawer.Visible = false
 	buildRightColumn(mainFrame)
-	buildBottom(root)
+	buildBottom(mainFrame)
 	Theme.mount(gui)
 
 	ClientState.ProfileChanged:Connect(function()

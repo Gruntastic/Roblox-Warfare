@@ -5,6 +5,7 @@ local Cosmetics = Loader.load("src/shared/Config/Cosmetics.luau")
 local StoreRules = Loader.load("src/shared/Pure/StoreRules.luau")
 local CosmeticRules = Loader.load("src/shared/Pure/CosmeticRules.luau")
 local ProfileSchema = Loader.load("src/shared/Pure/ProfileSchema.luau")
+local Gear = Loader.load("src/shared/Config/Gear.luau")
 local describe, it, expect = T.describe, T.it, T.expect
 
 local function profile()
@@ -16,6 +17,8 @@ local function def(kind: string, id: string): any
 		return Cosmetics.camoById[id]
 	elseif kind == "Title" then
 		return Cosmetics.titleById[id]
+	elseif kind == "Gear" then
+		return Gear.byId[id]
 	end
 	return Cosmetics.emblemById[id]
 end

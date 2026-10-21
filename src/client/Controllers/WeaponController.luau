@@ -16,6 +16,7 @@ local WeaponStats = require(Shared.Pure.WeaponStats)
 local PerkRules = require(Shared.Pure.PerkRules)
 local Pellets = require(Shared.Pure.Pellets)
 local Audio = require(Shared.Config.Audio)
+local Gear = require(Shared.Config.Gear)
 local WeaponModel = require(Shared.WeaponModel)
 local ClientState = require(script.Parent.Parent.ClientState)
 local Effects = require(script.Parent.Effects)
@@ -67,14 +68,25 @@ local function camera(): Camera
 	return workspace.CurrentCamera
 end
 
+-- Sleeves and gloves match the equipped operator gear set (Config/Gear).
+local function gearColors(): (Color3, Color3, Color3)
+	local profile = ClientState.profile
+	local eq = profile and profile.cosmetics and profile.cosmetics.equipped
+	local gear = Gear.byId[if eq and eq.gear then eq.gear else Gear.Default] or Gear.byId[Gear.Default]
+	return gear.shirt, gear.gloves, gear.webbing
+end
+
 local function buildArms(model: Model, grip: BasePart)
-	local sleeve = Color3.fromRGB(78, 84, 66)
-	local glove = Color3.fromRGB(35, 35, 35)
+	local sleeve, glove, cuff = gearColors()
 	local specs = {
 		{ name = "RightArm", size = Vector3.new(0.35, 0.35, 1.6), cf = CFrame.new(0.15, -0.35, 0.85) * CFrame.Angles(math.rad(10), 0, 0), color = sleeve },
 		{ name = "RightHand", size = Vector3.new(0.3, 0.32, 0.36), cf = CFrame.new(0, -0.15, 0.05), color = glove },
 		{ name = "LeftArm", size = Vector3.new(0.35, 0.35, 1.7), cf = CFrame.new(-0.45, -0.3, -0.45) * CFrame.Angles(math.rad(8), math.rad(-28), 0), color = sleeve },
 		{ name = "LeftHand", size = Vector3.new(0.3, 0.3, 0.36), cf = CFrame.new(-0.02, -0.08, -1.2), color = glove },
+		-- glove cuffs and a wrist watch for a bit of kit in first person
+		{ name = "RightCuff", size = Vector3.new(0.38, 0.38, 0.14), cf = CFrame.new(0.13, -0.27, 0.32) * CFrame.Angles(math.rad(10), 0, 0), color = cuff },
+		{ name = "LeftCuff", size = Vector3.new(0.38, 0.38, 0.14), cf = CFrame.new(-0.12, -0.13, -0.98) * CFrame.Angles(math.rad(8), math.rad(-28), 0), color = cuff },
+		{ name = "Watch", size = Vector3.new(0.4, 0.2, 0.2), cf = CFrame.new(-0.16, -0.06, -0.9) * CFrame.Angles(math.rad(8), math.rad(-28), 0), color = Color3.fromRGB(24, 24, 26) },
 	}
 	for _, spec in specs do
 		local p = Instance.new("Part")

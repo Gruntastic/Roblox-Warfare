@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local ClientState = require(script.Parent.Parent.ClientState)
+local StagingScene = require(script.Parent.StagingScene)
 
 local player = Players.LocalPlayer
 local CameraController = {}
@@ -67,6 +68,12 @@ local function update(dt: number)
 	cam.CameraType = Enum.CameraType.Scriptable
 	UserInputService.MouseIconEnabled = true
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	-- the lobby films the staging room (the Lobby screen turns it on while it is shown)
+	if StagingScene.isActive() then
+		cam.CFrame = StagingScene.cameraCFrame()
+		cam.FieldOfView = StagingScene.FOV
+		return
+	end
 	local base = lobbyCFrame()
 	if base then
 		drift += dt

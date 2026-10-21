@@ -29,6 +29,7 @@ local ClientState = {
 	jammedUntil = 0, -- server time: our compass is jammed by an enemy Counter-Recon until then
 	blackoutUntil = 0, -- server time: our HUD is knocked out by an enemy Blackout until then
 	menus = {} :: { [string]: boolean }, -- full-screen menus open right now (Gunsmith, Barracks)
+	party = nil :: Types.PartyPayload?, -- latest PartyState (squad + invites waiting for us)
 
 	MatchStateChanged = Signal.new() :: Signal.Signal<Types.MatchStatePayload>,
 	ProfileChanged = Signal.new() :: Signal.Signal<Types.ProfileSummary>,
@@ -52,6 +53,7 @@ local ClientState = {
 	Mark = Signal.new() :: Signal.Signal<number, number>, -- victimUserId, seconds (Tracker perk)
 	HudEffectsChanged = Signal.new() :: Signal.Signal<()>, -- jammedUntil / blackoutUntil changed
 	MenuChanged = Signal.new() :: Signal.Signal<()>,
+	PartyChanged = Signal.new() :: Signal.Signal<Types.PartyPayload>,
 	-- Phase 7: on-screen touch controls (UI/TouchControls) -> controllers. name: "Fire" | "ADS" |
 	-- "Reload" | "Swap" | "Melee" | "Sprint" | "Crouch"; down = pressed (true) or released (false)
 	-- sound cue: Config/Audio slot name, optional world position (nil = 2D), optional pitch offset
@@ -156,6 +158,13 @@ function ClientState.init()
 	Net.event("Mark").OnClientEvent:Connect(function(victimUserId, seconds)
 		if type(victimUserId) == "number" and type(seconds) == "number" then
 			ClientState.Mark:Fire(victimUserId, seconds)
+		end
+	end)
+
+	Net.event("PartyState").OnClientEvent:Connect(function(p)
+		if type(p) == "table" and type(p.members) == "table" and type(p.invites) == "table" then
+			ClientState.party = p
+			ClientState.PartyChanged:Fire(p)
 		end
 	end)
 

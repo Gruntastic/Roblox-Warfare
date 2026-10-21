@@ -16,8 +16,19 @@ function StoreRules.owns(profile: any, kind: string, id: string): boolean
 		return CosmeticRules.ownsTitle(profile, id)
 	elseif kind == "Emblem" then
 		return CosmeticRules.ownsEmblem(profile, id)
+	elseif kind == "Gear" then
+		return CosmeticRules.ownsGear(profile, id)
 	end
 	return false
+end
+
+-- Gear Crates earned by going from level `before` to level `after` (one per multiple crossed).
+function StoreRules.gearCratesForLevels(before: number, after: number): number
+	local every = Store.GearCrateEveryLevels
+	if after <= before or every <= 0 then
+		return 0
+	end
+	return math.floor(after / every) - math.floor(before / every)
 end
 
 local function give(profile: any, kind: string, id: string)
