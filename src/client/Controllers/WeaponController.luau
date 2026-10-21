@@ -15,6 +15,7 @@ local Attachments = require(Shared.Config.Attachments)
 local WeaponStats = require(Shared.Pure.WeaponStats)
 local PerkRules = require(Shared.Pure.PerkRules)
 local Pellets = require(Shared.Pure.Pellets)
+local Audio = require(Shared.Config.Audio)
 local WeaponModel = require(Shared.WeaponModel)
 local ClientState = require(script.Parent.Parent.ClientState)
 local Effects = require(script.Parent.Effects)
@@ -190,18 +191,24 @@ local function startReload()
 	-- reload sounds: shotguns load shells, everything else swaps the magazine
 	local token = reloadingUntil
 	local shotgun = cur.def.class == "Shotgun"
-	ClientState.Sfx:Fire(if shotgun then "ShellLoad" else "MagOut")
-	task.delay(reloadDuration * 0.55, function()
-		if reloadingUntil == token then
-			ClientState.Sfx:Fire(if shotgun then "ShellLoad" else "MagIn")
-		end
-	end)
-	if mag == 0 and not shotgun then
-		task.delay(reloadDuration * 0.85, function()
+	local handgun = cur.def.class == "Pistol" or cur.def.class == "MachinePistol"
+	local full = if handgun then "Reload.Handgun" elseif not shotgun then "Reload.Rifle" else nil
+	if full and Audio[full] and Audio[full].id ~= 0 then
+		ClientState.Sfx:Fire(full) -- one recorded reload covers the whole action
+	else
+		ClientState.Sfx:Fire(if shotgun then "ShellLoad" else "MagOut")
+		task.delay(reloadDuration * 0.55, function()
 			if reloadingUntil == token then
-				ClientState.Sfx:Fire("BoltRack")
+				ClientState.Sfx:Fire(if shotgun then "ShellLoad" else "MagIn")
 			end
 		end)
+		if mag == 0 and not shotgun then
+			task.delay(reloadDuration * 0.85, function()
+				if reloadingUntil == token then
+					ClientState.Sfx:Fire("BoltRack")
+				end
+			end)
+		end
 	end
 	Net.event("Reload"):FireServer(cur.slot)
 end

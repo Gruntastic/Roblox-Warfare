@@ -174,9 +174,18 @@ local function longGun(o: LongOpts): Geo
 		add("ScopeTurret", V3(0.07, 0.08, 0.07), CF(0, scopeY + 0.09, railZ), o.accent)
 		sightY, sightZ = scopeY, railZ + 0.76
 	else
-		local rearH = if o.sights == "Bead" then 0.05 else 0.09
-		add("RearSight", V3(0.1, rearH, 0.07), CF(0, railTop + rearH / 2, -0.12), DARK)
-		sightY, sightZ = railTop + rearH, 0.08
+		if o.sights == "Bead" then
+			add("RearSight", V3(0.1, 0.05, 0.07), CF(0, railTop + 0.025, -0.12), DARK)
+			sightY, sightZ = railTop + 0.05, 0.08
+		else
+			-- Iron sights: a rear notch (base plus two ears with a gap) lined up with a front post.
+			-- The eye point sits level with the bottom of the notch so the post tip fills it.
+			local baseH, earH = 0.03, 0.08
+			add("RearSight", V3(0.12, baseH, 0.07), CF(0, railTop + baseH / 2, -0.12), DARK)
+			add("RearSightEarL", V3(0.035, earH, 0.06), CF(-0.0425, railTop + baseH + earH / 2, -0.12), DARK)
+			add("RearSightEarR", V3(0.035, earH, 0.06), CF(0.0425, railTop + baseH + earH / 2, -0.12), DARK)
+			sightY, sightZ = railTop + baseH + earH * 0.55, 0.08
+		end
 	end
 
 	-- Handguard
@@ -240,7 +249,15 @@ local function longGun(o: LongOpts): Geo
 			baseTop, fz = hgTop, -(o.recFront + o.hgLen - 0.07)
 		end
 		local h = (sightY - 0.005) - baseTop
-		add("FrontSight", V3(0.04, h, 0.04), CF(0, baseTop + h / 2, fz), DARK)
+		if o.sights == "Iron" then
+			-- thin post between two protective ears (the ears stand clear of the sight picture)
+			add("FrontSightBase", V3(0.12, 0.04, 0.06), CF(0, baseTop + 0.02, fz), DARK)
+			add("FrontSight", V3(0.022, h, 0.022), CF(0, baseTop + h / 2, fz), DARK)
+			add("FrontSightEarL", V3(0.02, h + 0.01, 0.05), CF(-0.05, baseTop + (h + 0.01) / 2, fz), DARK)
+			add("FrontSightEarR", V3(0.02, h + 0.01, 0.05), CF(0.05, baseTop + (h + 0.01) / 2, fz), DARK)
+		else
+			add("FrontSight", V3(0.04, h, 0.04), CF(0, baseTop + h / 2, fz), DARK)
+		end
 	end
 
 	-- Magazine (single part named "Magazine"; magazine attachments replace it). The anchor sits
@@ -715,7 +732,7 @@ local Weapons: { [string]: WeaponDef } = {
 		spread = { hip = 2.4, ads = 0.22, movingMultiplier = 1.3 },
 		recoil = { vertical = 0.42, horizontal = 0.3, recovery = 12, adsMultiplier = 0.75 },
 		adsFov = 60,
-		unlockLevel = 2,
+		unlockLevel = 1,
 		muzzleOffset = G.MR5.muzzle,
 		sightOffset = G.MR5.sight,
 		anchors = G.MR5.anchors,
@@ -872,7 +889,7 @@ local Weapons: { [string]: WeaponDef } = {
 		spread = { hip = 4.2, ads = 0.14, movingMultiplier = 1.8 },
 		recoil = { vertical = 0.55, horizontal = 0.3, recovery = 8, adsMultiplier = 0.7 },
 		adsFov = 55,
-		unlockLevel = 4,
+		unlockLevel = 1,
 		muzzleOffset = G.MT1.muzzle,
 		sightOffset = G.MT1.sight,
 		anchors = G.MT1.anchors,
@@ -967,7 +984,7 @@ local Weapons: { [string]: WeaponDef } = {
 		spread = { hip = 5.0, ads = 0.05, movingMultiplier = 1.8 },
 		recoil = { vertical = 1.6, horizontal = 0.35, recovery = 9, adsMultiplier = 0.7 },
 		adsFov = 50,
-		unlockLevel = 3,
+		unlockLevel = 1,
 		muzzleOffset = G.LS6.muzzle,
 		sightOffset = G.LS6.sight,
 		anchors = G.LS6.anchors,
@@ -1032,7 +1049,7 @@ local Weapons: { [string]: WeaponDef } = {
 		recoil = { vertical = 4.0, horizontal = 0.6, recovery = 6, adsMultiplier = 0.6 },
 		adsFov = 50,
 		scope = { fov = 22 },
-		unlockLevel = 4,
+		unlockLevel = 1,
 		muzzleOffset = G.HR5.muzzle,
 		sightOffset = G.HR5.sight,
 		anchors = G.HR5.anchors,
@@ -1131,7 +1148,7 @@ local Weapons: { [string]: WeaponDef } = {
 		spread = { hip = 2.5, ads = 0.6, movingMultiplier = 1.3 },
 		recoil = { vertical = 3.5, horizontal = 0.6, recovery = 7, adsMultiplier = 0.8 },
 		adsFov = 60,
-		unlockLevel = 2,
+		unlockLevel = 1,
 		muzzleOffset = G.HG8.muzzle,
 		sightOffset = G.HG8.sight,
 		anchors = G.HG8.anchors,
@@ -1323,7 +1340,7 @@ local Weapons: { [string]: WeaponDef } = {
 		spread = { hip = 2.6, ads = 0.4, movingMultiplier = 1.2 },
 		recoil = { vertical = 0.45, horizontal = 0.45, recovery = 13, adsMultiplier = 0.85 },
 		adsFov = 62,
-		unlockLevel = 15,
+		unlockLevel = 1,
 		muzzleOffset = G.SP3.muzzle,
 		sightOffset = G.SP3.sight,
 		anchors = G.SP3.anchors,

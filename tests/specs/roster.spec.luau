@@ -177,15 +177,13 @@ describe("Roster", function()
 		end
 	end)
 
-	it("every class has a starter at account level 1-4 (except the single machine pistol)", function()
+	it("every class has a starter weapon unlocked at account level 1", function()
 		for class in EXPECTED_CLASSES do
-			if class ~= "MachinePistol" then
-				local lowest = math.huge
-				for _, def in ofClass(class) do
-					lowest = math.min(lowest, def.unlockLevel)
-				end
-				within(class, "lowest unlock", lowest, 1, 4)
+			local lowest = math.huge
+			for _, def in ofClass(class) do
+				lowest = math.min(lowest, def.unlockLevel)
 			end
+			expect(lowest).toBe(1)
 		end
 		for _, def in Weapons do
 			within(def.id, "unlockLevel", def.unlockLevel, 1, 45)
@@ -203,7 +201,7 @@ describe("Roster", function()
 end)
 
 describe("Roster models", function()
-	it("every model has exactly one Magazine part and stays under 25 parts", function()
+	it("every model has exactly one Magazine part and stays under 32 parts", function()
 		for id, def in Weapons do
 			local mags = 0
 			for _, p in def.model do
@@ -220,7 +218,7 @@ describe("Roster models", function()
 			if mags ~= 1 then
 				error(("%s has %d Magazine parts"):format(id, mags))
 			end
-			if #def.model > 25 then
+			if #def.model > 32 then -- 25 plus the notched iron sights (5 parts)
 				error(("%s has %d parts"):format(id, #def.model))
 			end
 		end

@@ -58,7 +58,7 @@ function SoundController.play(name: string, position: Vector3?, pitch: number?)
 		holder.WorldPosition = position
 		holder.Parent = workspace.Terrain
 		sound.RollOffMinDistance = 10
-		sound.RollOffMaxDistance = 400
+		sound.RollOffMaxDistance = if string.sub(name, 1, 7) == "Streak." then 1000 else 400
 		sound.Parent = holder
 		sound.Ended:Once(function()
 			holder:Destroy()
@@ -88,6 +88,15 @@ function SoundController.init()
 	ClientState.AdsChanged:Connect(function(on: boolean)
 		if on then
 			SoundController.play("AdsIn")
+		end
+	end)
+	ClientState.StreakEvent:Connect(function(kind: string, data: { [string]: any })
+		if kind == "Incoming" and type(data.positions) == "table" then
+			-- one warning whistle at the first landing point (heard by everyone nearby)
+			local first = data.positions[1]
+			SoundController.play("Streak.MortarIncoming", if typeof(first) == "Vector3" then first else nil)
+		elseif kind == "Impact" and typeof(data.position) == "Vector3" then
+			SoundController.play("Streak.Explosion", data.position)
 		end
 	end)
 	Net.event("Tracer").OnClientEvent:Connect(function(_shooterId: number, origin: Vector3)
