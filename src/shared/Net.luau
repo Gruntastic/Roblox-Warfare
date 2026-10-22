@@ -20,9 +20,14 @@ Net.Events = {
 	"JoinQueue", -- (pick: string?) mode id or "Any" to queue (joins a running match of that mode); nil leaves the queue
 	"ActivateStreak", -- (id: string, aimDirection: Vector3?) use an earned killstreak; targeted ones aim from the server head position
 	"Prestige", -- (confirm: string) must be exactly "PRESTIGE"; only at max level, only outside a match
-	"EquipCosmetic", -- (kind: "Camo" | "Title" | "Emblem", id: string, weaponId: string?) camo needs weaponId; Emblem "" unequips
+	"EquipCosmetic", -- (kind: "Camo" | "Title" | "Emblem" | "Gear", id: string, weaponId: string?) camo needs weaponId; Emblem "" unequips
 	"BuyItem", -- (itemId: string) Config/Store shop item, paid with earned credits
 	"OpenCrate", -- (crateId: string) opens one earned crate
+	"AimPitch", -- (degrees: number) camera pitch for the third-person pose, ~10 Hz while deployed
+	"PartyInvite", -- (userId: number) invite a player in this server to your squad
+	"PartyRespond", -- (fromUserId: number, accept: boolean)
+	"PartyLeave", -- ()
+	"PartyKick", -- (userId: number) squad leader only
 	-- server -> client
 	"MatchState", -- (MatchStatePayload)
 	"KillFeed", -- (KillFeedPayload)
@@ -41,6 +46,7 @@ Net.Events = {
 	"Ping", -- (PingPayload) Recon Drone pings, to the drone owner's team
 	"Mark", -- (victimUserId: number, seconds: number) Tracker perk, to the attacker only
 	"CrateOpened", -- (CrateResultPayload) to the opener
+	"PartyState", -- (PartyPayload) to each player whose squad or invites changed
 }
 
 Net.Functions = {

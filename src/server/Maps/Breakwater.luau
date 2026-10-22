@@ -151,6 +151,20 @@ function MapModule.build(): Model
 		folder = f
 	end
 
+	-- Props: parts built inside prop("Key", fn) are tagged so EnvironmentService can lay a ForgeGUI
+	-- mesh (Assets.Models["Prop.Key"]) over them. Nested props belong to the outermost one.
+	local propKey: string? = nil
+	local propCount = 0
+	local function prop(key: string, fn: () -> ())
+		local outer = propKey
+		if outer == nil then
+			propCount += 1
+			propKey = key
+		end
+		fn()
+		propKey = outer
+	end
+
 	local function finish(p: BasePart, st: Style, name: string?)
 		p.Anchored = true
 		p.CanQuery = true
@@ -161,6 +175,10 @@ function MapModule.build(): Model
 		p.TopSurface = Enum.SurfaceType.Smooth
 		p.BottomSurface = Enum.SurfaceType.Smooth
 		p.Name = name or "Part"
+		if propKey then
+			p:SetAttribute("Prop", propKey)
+			p:SetAttribute("PropId", propCount)
+		end
 		p.Parent = folder
 	end
 
@@ -274,19 +292,21 @@ function MapModule.build(): Model
 	-- the long axis is whichever side is longer. Body plus two darker end frames.
 	local colourIndex = 0
 	local function container(x0: number, x1: number, z0: number, z1: number, y0: number, st: Style?)
-		colourIndex += 1
-		local c = st or CONTAINER_COLOURS[(colourIndex * 3) % #CONTAINER_COLOURS + 1]
-		local xa, xb = math.min(x0, x1), math.max(x0, x1)
-		local za, zb = math.min(z0, z1), math.max(z0, z1)
-		if xb - xa >= zb - za then
-			blk(xa + 0.3, y0, za, xb - 0.3, y0 + 9, zb, c, "Container")
-			blk(xa, y0, za - 0.15, xa + 0.6, y0 + 9, zb + 0.15, P.frame, "ContainerFrame")
-			blk(xb - 0.6, y0, za - 0.15, xb, y0 + 9, zb + 0.15, P.frame, "ContainerFrame")
-		else
-			blk(xa, y0, za + 0.3, xb, y0 + 9, zb - 0.3, c, "Container")
-			blk(xa - 0.15, y0, za, xb + 0.15, y0 + 9, za + 0.6, P.frame, "ContainerFrame")
-			blk(xa - 0.15, y0, zb - 0.6, xb + 0.15, y0 + 9, zb, P.frame, "ContainerFrame")
-		end
+		prop("Container", function()
+			colourIndex += 1
+			local c = st or CONTAINER_COLOURS[(colourIndex * 3) % #CONTAINER_COLOURS + 1]
+			local xa, xb = math.min(x0, x1), math.max(x0, x1)
+			local za, zb = math.min(z0, z1), math.max(z0, z1)
+			if xb - xa >= zb - za then
+				blk(xa + 0.3, y0, za, xb - 0.3, y0 + 9, zb, c, "Container")
+				blk(xa, y0, za - 0.15, xa + 0.6, y0 + 9, zb + 0.15, P.frame, "ContainerFrame")
+				blk(xb - 0.6, y0, za - 0.15, xb, y0 + 9, zb + 0.15, P.frame, "ContainerFrame")
+			else
+				blk(xa, y0, za + 0.3, xb, y0 + 9, zb - 0.3, c, "Container")
+				blk(xa - 0.15, y0, za, xb + 0.15, y0 + 9, za + 0.6, P.frame, "ContainerFrame")
+				blk(xa - 0.15, y0, zb - 0.6, xb + 0.15, y0 + 9, zb, P.frame, "ContainerFrame")
+			end
+		end)
 	end
 
 	-- A run of containers along X from xa to xb (split into pieces of at most 20), 1 or 2 high.
@@ -302,66 +322,82 @@ function MapModule.build(): Model
 	end
 
 	local function crate(x: number, y: number, z: number, s: number, yaw: number?)
-		box(CFrame.new(x, y + s / 2, z) * CFrame.Angles(0, yaw or 0, 0), Vector3.new(s, s, s), P.planks, "Crate")
+		prop("Crate", function()
+			box(CFrame.new(x, y + s / 2, z) * CFrame.Angles(0, yaw or 0, 0), Vector3.new(s, s, s), P.planks, "Crate")
+		end)
 	end
 
 	local function pallet(x: number, z: number, h: number, st: Style)
-		blk(x - 2.4, 0, z - 2, x + 2.4, 0.6, z + 2, P.planksDark, "Pallet")
-		blk(x - 2.1, 0.6, z - 1.7, x + 2.1, 0.6 + h, z + 1.7, st, "PalletLoad")
+		prop("Pallet", function()
+			blk(x - 2.4, 0, z - 2, x + 2.4, 0.6, z + 2, P.planksDark, "Pallet")
+			blk(x - 2.1, 0.6, z - 1.7, x + 2.1, 0.6 + h, z + 1.7, st, "PalletLoad")
+		end)
 	end
 
 	local function bollard(x: number, y: number, z: number)
-		cylY(x, y, z, y + 1.6, 1.4, P.steelDark, "Bollard")
-		cylY(x, y + 1.6, z, y + 2, 1.9, P.steelDark, "BollardCap")
+		prop("Bollard", function()
+			cylY(x, y, z, y + 1.6, 1.4, P.steelDark, "Bollard")
+			cylY(x, y + 1.6, z, y + 2, 1.9, P.steelDark, "BollardCap")
+		end)
 	end
 
 	-- Fish/ice tote stack (crouch cover), blue plastic.
 	local function totes(x: number, z: number)
-		blk(x - 2, 0, z - 1.5, x + 2, 3.2, z + 1.5, P.panelBlue, "Totes")
-		blk(x - 1.8, 3.2, z - 1.3, x + 1.8, 3.4, z + 1.3, P.paintWhite, "ToteIce")
+		prop("FishTotes", function()
+			blk(x - 2, 0, z - 1.5, x + 2, 3.2, z + 1.5, P.panelBlue, "Totes")
+			blk(x - 1.8, 3.2, z - 1.3, x + 1.8, 3.4, z + 1.3, P.paintWhite, "ToteIce")
+		end)
 	end
 
 	-- Box truck: cargo box + cab + 4 wheels, long axis along X, cab on the +X side when
 	-- face > 0 and on the -X side when face < 0.
 	local function truck(x: number, z: number, face: number, st: Style)
-		local f = if face < 0 then -1 else 1
-		local function bx(a0: number, y0: number, z0: number, a1: number, y1: number, z1: number, s2: Style, name: string)
-			blk(x + f * a0, y0, z + z0, x + f * a1, y1, z + z1, s2, name)
-		end
-		bx(-8, 1.6, -3.2, 4, 10, 3.2, st, "TruckBox")
-		bx(4, 1.6, -3, 9, 7, 3, P.paintWhite, "TruckCab")
-		bx(8.4, 4.4, -2.6, 9.05, 6.4, 2.6, P.glass, "TruckWindscreen")
-		bx(-8, 1, -2.6, 9, 1.6, 2.6, P.steelDark, "TruckChassis")
-		bx(-8.2, 6, -3.3, -8, 9, 3.3, P.paintYellow, "TruckDoorStripe")
-		for _, w in { { -6, -3.2 }, { -6, 3.2 }, { 6, -3.2 }, { 6, 3.2 } } do
-			cylH(x + f * w[1], 1.4, z + w[2], 0.9, 2.8, true, P.rubber, "Wheel")
-		end
+		prop("BoxTruck", function()
+			local f = if face < 0 then -1 else 1
+			local function bx(a0: number, y0: number, z0: number, a1: number, y1: number, z1: number, s2: Style, name: string)
+				blk(x + f * a0, y0, z + z0, x + f * a1, y1, z + z1, s2, name)
+			end
+			bx(-8, 1.6, -3.2, 4, 10, 3.2, st, "TruckBox")
+			bx(4, 1.6, -3, 9, 7, 3, P.paintWhite, "TruckCab")
+			bx(8.4, 4.4, -2.6, 9.05, 6.4, 2.6, P.glass, "TruckWindscreen")
+			bx(-8, 1, -2.6, 9, 1.6, 2.6, P.steelDark, "TruckChassis")
+			bx(-8.2, 6, -3.3, -8, 9, 3.3, P.paintYellow, "TruckDoorStripe")
+			for _, w in { { -6, -3.2 }, { -6, 3.2 }, { 6, -3.2 }, { 6, 3.2 } } do
+				cylH(x + f * w[1], 1.4, z + w[2], 0.9, 2.8, true, P.rubber, "Wheel")
+			end
+		end)
 	end
 
 	local function forklift(x: number, z: number, yaw: number)
-		local base = CFrame.new(x, 0, z) * CFrame.Angles(0, yaw, 0)
-		box(base * CFrame.new(0, 1.8, 0), Vector3.new(6, 2.6, 4), P.paintYellow, "Forklift")
-		box(base * CFrame.new(-1, 4.4, 0), Vector3.new(3, 2.6, 3.6), P.steelDark, "ForkliftCage")
-		box(base * CFrame.new(3.4, 3.5, 0), Vector3.new(0.6, 7, 3), P.steelDark, "ForkliftMast")
-		box(base * CFrame.new(4.6, 0.4, 0), Vector3.new(2.6, 0.3, 3), P.steelDark, "Forks")
+		prop("Forklift", function()
+			local base = CFrame.new(x, 0, z) * CFrame.Angles(0, yaw, 0)
+			box(base * CFrame.new(0, 1.8, 0), Vector3.new(6, 2.6, 4), P.paintYellow, "Forklift")
+			box(base * CFrame.new(-1, 4.4, 0), Vector3.new(3, 2.6, 3.6), P.steelDark, "ForkliftCage")
+			box(base * CFrame.new(3.4, 3.5, 0), Vector3.new(0.6, 7, 3), P.steelDark, "ForkliftMast")
+			box(base * CFrame.new(4.6, 0.4, 0), Vector3.new(2.6, 0.3, 3), P.steelDark, "Forks")
+		end)
 	end
 
 	local function lightTower(x: number, z: number, h: number)
-		blk(x - 1.6, 0, z - 1.6, x + 1.6, 1.4, z + 1.6, P.concreteDark, "LightBase")
-		cylY(x, 1.4, z, h, 0.8, P.steel, "LightMast")
-		blk(x - 2.2, h, z - 0.6, x + 2.2, h + 1.6, z + 0.6, P.steelDark, "LightHead")
-		blk(x - 2, h - 0.2, z - 0.5, x + 2, h, z + 0.5, P.lamp, "Floodlight")
+		prop("LightTower", function()
+			blk(x - 1.6, 0, z - 1.6, x + 1.6, 1.4, z + 1.6, P.concreteDark, "LightBase")
+			cylY(x, 1.4, z, h, 0.8, P.steel, "LightMast")
+			blk(x - 2.2, h, z - 0.6, x + 2.2, h + 1.6, z + 0.6, P.steelDark, "LightHead")
+			blk(x - 2, h - 0.2, z - 0.5, x + 2, h, z + 0.5, P.lamp, "Floodlight")
+		end)
 	end
 
 	-- Small fishing boat in the water: hull, wheelhouse, mast. Long axis along X.
 	local function boat(x: number, z: number, len: number, st: Style)
-		local y = WATER_Y
-		blk(x - len / 2, y, z - 3.5, x + len / 2 - 3, y + 3.5, z + 3.5, st, "Hull")
-		wedge(CFrame.new(x + len / 2 - 1.5, y + 1.75, z) * CFrame.Angles(0, -math.pi / 2, 0), Vector3.new(7, 3.5, 3), st, "Bow")
-		blk(x - len / 2 + 0.2, y + 3.5, z - 3.6, x + len / 2 - 3, y + 4, z + 3.6, P.paintWhite, "Gunwale")
-		blk(x - 2, y + 3.5, z - 2.4, x + 3, y + 8.5, z + 2.4, P.paintWhite, "Wheelhouse")
-		blk(x - 2.2, y + 8.5, z - 2.6, x + 3.2, y + 9, z + 2.6, P.panelBlue, "WheelhouseRoof")
-		cylY(x - len / 4, y + 3.5, z, y + 15, 0.5, P.steelDark, "Mast")
+		prop("FishingBoat", function()
+			local y = WATER_Y
+			blk(x - len / 2, y, z - 3.5, x + len / 2 - 3, y + 3.5, z + 3.5, st, "Hull")
+			wedge(CFrame.new(x + len / 2 - 1.5, y + 1.75, z) * CFrame.Angles(0, -math.pi / 2, 0), Vector3.new(7, 3.5, 3), st, "Bow")
+			blk(x - len / 2 + 0.2, y + 3.5, z - 3.6, x + len / 2 - 3, y + 4, z + 3.6, P.paintWhite, "Gunwale")
+			blk(x - 2, y + 3.5, z - 2.4, x + 3, y + 8.5, z + 2.4, P.paintWhite, "Wheelhouse")
+			blk(x - 2.2, y + 8.5, z - 2.6, x + 3.2, y + 9, z + 2.6, P.panelBlue, "WheelhouseRoof")
+			cylY(x - len / 4, y + 3.5, z, y + 15, 0.5, P.steelDark, "Mast")
+		end)
 	end
 
 	-------------------------------------------------------------------------------------------

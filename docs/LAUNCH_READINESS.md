@@ -17,17 +17,15 @@ defect. They are things that have not been exercised yet.
 | Server authority | All 15 client→server remotes are handled on the server with type, range and rate checks: Fire, Reload, Equip, Melee, SetLoadout, SelectLoadout, VoteMap, Interact, RequestDeploy, ActivateStreak, Prestige, EquipCosmetic, BuyItem, OpenCrate, plus GetProfile. Damage, ammo, XP, unlocks, inventory, credits, crates and purchases are decided only on the server |
 | Data safety | Session-locked DataStore profiles, retries with backoff, autosave, BindToClose, versioned migrations (v1→v5). There is an in-memory fallback, with an on-screen warning, when DataStores are unavailable |
 | Monetisation policy | Cosmetic only. Credits and crates are earned only by play. Robux buys fixed bundles through an idempotent ProcessReceipt that acknowledges only after a save. Nothing paid is random. PolicyService is read per player |
-| Assets | No Toolbox or third-party scripts or models. Everything is built from code in `src/` |
+| Assets | No Toolbox or third-party scripts or models. Geometry is built from code in `src/`; images come from ForgeGUI (see `docs/ASSETS.md`) |
 | Population | No bots or fake players. Lobbies show only real players |
 
 ## Launch blockers (owner)
 
-1. **Title check.** The game is now called "Roblox Blox Ops" (owner's choice, 2026-10-20). Two
-   points to confirm before release. (a) Roblox's brand guidelines limit using the "Roblox" name in
-   ways that could suggest the game is official or endorsed by Roblox. Check the current guidelines
-   for experience titles. (b) "Blox Ops" is close to "Black Ops", a Call of Duty sub-brand. The
-   title appears only in the lobby logo, the README and the project name, so another rename stays
-   cheap.
+1. **Title check.** The game is now called "Blox Ops" (owner's choice, 2026-10-21; it was "Roblox
+   Blox Ops", so the Roblox brand-name question is gone). One point to confirm before release:
+   "Blox Ops" is close to "Black Ops", a Call of Duty sub-brand. The title appears only in the
+   lobby logo, the README and the project name, so another rename stays cheap.
 2. **Publish the place and enable Studio access to API services.** DataStore persistence (save,
    rejoin, session lock across servers, BindToClose) has only run in its in-memory fallback.
 3. **Create the Founder Pack developer product** and set its id in `src/shared/Config/Store.luau`.

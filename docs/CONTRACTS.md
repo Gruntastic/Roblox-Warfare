@@ -1,4 +1,4 @@
-# Roblox Blox Ops: Architecture & Interface Contracts
+# Blox Ops: Architecture & Interface Contracts
 
 Source of truth for cross-team boundaries. Change a contract here first, then the code.
 
@@ -33,9 +33,12 @@ read by CameraController.
 ## Remotes (src/shared/Net.luau, payloads in src/shared/Types.luau)
 Client -> server: `Fire(shotId, slot, origin, direction)`, `Reload(slot)`, `Equip(slot)`, `Melee()`,
 `SetLoadout(index, {primary, secondary, primaryAttachments, secondaryAttachments})`, `SelectLoadout(index)`,
-`VoteMap(mapId)`, `RequestDeploy()`. Function: `GetProfile() -> ProfileSummary`.
+`VoteMap(mapId)`, `RequestDeploy()`, `AimPitch(degrees)` (clamped to ±80, rate limited; mirrored to
+the character attribute `AimPitch` so other clients pose the waist/neck), `PartyInvite(userId)`,
+`PartyRespond(fromUserId, accept)`, `PartyLeave()`, `PartyKick(userId)` (leader only). Function: `GetProfile() -> ProfileSummary`.
 Server -> client: `MatchState`, `KillFeed`, `HitConfirm`, `DamageTaken`, `AmmoState(slot, mag, reserve, reloading)`,
-`XPGain`, `ProfileSync`, `MatchResults`, `Tracer(shooterUserId, origin, hitPos)`, `Notify(text, kind)`.
+`XPGain`, `ProfileSync`, `MatchResults`, `Tracer(shooterUserId, origin, hitPos)`, `Notify(text, kind)`,
+`PartyState(PartyPayload)` where `PartyPayload = {leader: userId?, members: {userId}, invites: {{userId, name}}, maxSize}`.
 
 All client -> server remotes are validated (types, ranges, rate limits) on the server.
 The client never reports damage, hits, XP, ammo counts or unlocks; it only reports intent.
@@ -154,3 +157,15 @@ player's kills. `PlayerLine.score` is the scoreboard score; the race is decided 
 There are no respawns during a round: dead players stay dead until the next round's countdown, when
 everyone is respawned frozen at their side's spawns. The client should spectate a living teammate
 while dead and `ClientState.objective.round.live` is true, and show who is alive per team.
+
+## Squads, staging and gear
+- `PartyService`: squads of up to 6 in one server. Invites expire after 60 s. The leader's queue pick
+  carries the whole squad, and team modes keep a squad together while the balance stays within one.
+  Players outside the server are invited with `SocialService:PromptGameInvite` on the client.
+- `OperatorService`: dresses every spawned character with its gear set (`GearBuilder.apply`, team colour
+  on the armband and strobe) and keeps a staging copy of each player's avatar in
+  `ReplicatedStorage.StagingAvatars` (attributes `Primary`, `Level`) for the lobby hangar.
+- Gear sets live in `Config/Gear.luau`. Equip with `EquipCosmetic("Gear", id)`; the choice is stored in
+  `profile.equipped.gear` (nil = default `Ranger`). Level sets unlock by level, `DesertRecon` is sold
+  in the shop, and crate sets come from the Gear Crate, earned every 5 levels.
+- Art ids are in `Config/Assets.luau`; see docs/ASSETS.md.

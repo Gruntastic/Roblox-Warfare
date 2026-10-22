@@ -151,6 +151,20 @@ function MapModule.build(): Model
 		folder = f
 	end
 
+	-- Props: parts built inside prop("Key", fn) are tagged so EnvironmentService can lay a ForgeGUI
+	-- mesh (Assets.Models["Prop.Key"]) over them. Nested props belong to the outermost one.
+	local propKey: string? = nil
+	local propCount = 0
+	local function prop(key: string, fn: () -> ())
+		local outer = propKey
+		if outer == nil then
+			propCount += 1
+			propKey = key
+		end
+		fn()
+		propKey = outer
+	end
+
 	local function finish(p: BasePart, st: Style, name: string?)
 		p.Anchored = true
 		p.CanQuery = true
@@ -161,6 +175,10 @@ function MapModule.build(): Model
 		p.TopSurface = Enum.SurfaceType.Smooth
 		p.BottomSurface = Enum.SurfaceType.Smooth
 		p.Name = name or "Part"
+		if propKey then
+			p:SetAttribute("Prop", propKey)
+			p:SetAttribute("PropId", propCount)
+		end
 		p.Parent = folder
 	end
 
@@ -271,52 +289,66 @@ function MapModule.build(): Model
 	-- Props --------------------------------------------------------------------------------
 
 	local function crate(x: number, y: number, z: number, s: number, yaw: number?)
-		box(CFrame.new(x, y + s / 2, z) * CFrame.Angles(0, yaw or 0, 0), Vector3.new(s, s, s), P.planks, "Crate")
+		prop("Crate", function()
+			box(CFrame.new(x, y + s / 2, z) * CFrame.Angles(0, yaw or 0, 0), Vector3.new(s, s, s), P.planks, "Crate")
+		end)
 	end
 
 	-- Tree: collidable trunk, two non-collidable canopy blocks starting well above head height.
 	local function tree(x: number, z: number, h: number, leafA: Style, leafB: Style, r: number?)
-		local rr = r or 5
-		cylY(x, 0, z, h + 1, 2.2, P.bark, "Trunk")
-		blk(x - rr, h - 1, z - rr, x + rr, h + 4, z + rr, soft(leafA), "Canopy")
-		box(CFrame.new(x + 0.8, h + 4.5, z - 0.6) * CFrame.Angles(0, 0.7, 0), Vector3.new(rr * 1.3, 3.5, rr * 1.3), soft(leafB), "Canopy")
+		prop("OakTree", function()
+			local rr = r or 5
+			cylY(x, 0, z, h + 1, 2.2, P.bark, "Trunk")
+			blk(x - rr, h - 1, z - rr, x + rr, h + 4, z + rr, soft(leafA), "Canopy")
+			box(CFrame.new(x + 0.8, h + 4.5, z - 0.6) * CFrame.Angles(0, 0.7, 0), Vector3.new(rr * 1.3, 3.5, rr * 1.3), soft(leafB), "Canopy")
+		end)
 	end
 
 	-- Bench of length len along X or Z with a centre back rail, standing on floor y (default 0).
 	local function bench(x: number, z: number, len: number, alongZ: boolean, st: Style?, y: number?)
-		local s = st or P.wood
-		local y0 = y or 0
-		local hx, hz = if alongZ then 0.9 else len / 2, if alongZ then len / 2 else 0.9
-		blk(x - hx, y0, z - hz, x + hx, y0 + 1.6, z + hz, s, "Bench")
-		local bx, bz = if alongZ then 0.25 else len / 2, if alongZ then len / 2 else 0.25
-		blk(x - bx, y0 + 1.6, z - bz, x + bx, y0 + 3.4, z + bz, s, "BenchBack")
+		prop("Bench", function()
+			local s = st or P.wood
+			local y0 = y or 0
+			local hx, hz = if alongZ then 0.9 else len / 2, if alongZ then len / 2 else 0.9
+			blk(x - hx, y0, z - hz, x + hx, y0 + 1.6, z + hz, s, "Bench")
+			local bx, bz = if alongZ then 0.25 else len / 2, if alongZ then len / 2 else 0.25
+			blk(x - bx, y0 + 1.6, z - bz, x + bx, y0 + 3.4, z + bz, s, "BenchBack")
+		end)
 	end
 
 	-- Stone urn on a plinth (5 tall total): crouch-to-standing cover.
 	local function urn(x: number, z: number)
-		blk(x - 1.6, 0, z - 1.6, x + 1.6, 3, z + 1.6, P.stone, "UrnPlinth")
-		cylY(x, 3, z, 5, 2.4, P.stone, "Urn")
-		cylY(x, 5, z, 5.6, 1.6, soft(P.leafRed), "UrnPlanting")
+		prop("Urn", function()
+			blk(x - 1.6, 0, z - 1.6, x + 1.6, 3, z + 1.6, P.stone, "UrnPlinth")
+			cylY(x, 3, z, 5, 2.4, P.stone, "Urn")
+			cylY(x, 5, z, 5.6, 1.6, soft(P.leafRed), "UrnPlanting")
+		end)
 	end
 
 	-- Statue on a plinth (blocks the line it stands on).
 	local function statue(x: number, z: number)
-		-- plinth 8.1 tall: too tall to jump onto
-		blk(x - 2.5, 0, z - 2.5, x + 2.5, 7.5, z + 2.5, P.stone, "StatuePlinth")
-		blk(x - 2.8, 7.5, z - 2.8, x + 2.8, 8.1, z + 2.8, P.marble, "StatueCap")
-		blk(x - 0.9, 8.1, z - 0.7, x + 0.9, 13, z + 0.7, P.marble, "Statue")
-		blk(x - 0.6, 13, z - 0.6, x + 0.6, 14.3, z + 0.6, P.marble, "StatueHead")
+		prop("Statue", function()
+			-- plinth 8.1 tall: too tall to jump onto
+			blk(x - 2.5, 0, z - 2.5, x + 2.5, 7.5, z + 2.5, P.stone, "StatuePlinth")
+			blk(x - 2.8, 7.5, z - 2.8, x + 2.8, 8.1, z + 2.8, P.marble, "StatueCap")
+			blk(x - 0.9, 8.1, z - 0.7, x + 0.9, 13, z + 0.7, P.marble, "Statue")
+			blk(x - 0.6, 13, z - 0.6, x + 0.6, 14.3, z + 0.6, P.marble, "StatueHead")
+		end)
 	end
 
 	local function lampPost(x: number, z: number, h: number)
-		cylY(x, 0, z, h, 0.6, P.iron, "LampPost")
-		blk(x - 0.6, h, z - 0.6, x + 0.6, h + 1.4, z + 0.6, P.lamp, "Lantern")
-		blk(x - 0.8, h + 1.4, z - 0.8, x + 0.8, h + 1.8, z + 0.8, P.iron, "LanternCap")
+		prop("LampPost", function()
+			cylY(x, 0, z, h, 0.6, P.iron, "LampPost")
+			blk(x - 0.6, h, z - 0.6, x + 0.6, h + 1.4, z + 0.6, P.lamp, "Lantern")
+			blk(x - 0.8, h + 1.4, z - 0.8, x + 0.8, h + 1.8, z + 0.8, P.iron, "LanternCap")
+		end)
 	end
 
 	-- Round hay bale lying along X or Z.
 	local function bale(x: number, z: number, alongZ: boolean)
-		cylH(x, 1.8, z, 3, 3.6, alongZ, P.hay, "HayBale")
+		prop("HayBale", function()
+			cylH(x, 1.8, z, 3, 3.6, alongZ, P.hay, "HayBale")
+		end)
 	end
 
 	-- Square hay bales: a stack of n (each 4 x 2 x 2.4).
@@ -330,17 +362,19 @@ function MapModule.build(): Model
 
 	-- Horse-drawn carriage (body + 4 wheels + shafts), long axis along X before yaw.
 	local function carriage(x: number, z: number, yaw: number, st: Style)
-		local base = CFrame.new(x, 0, z) * CFrame.Angles(0, yaw, 0)
-		box(base * CFrame.new(0, 4, 0), Vector3.new(8, 4, 4.6), st, "CarriageBody")
-		box(base * CFrame.new(0, 6.3, 0), Vector3.new(8.6, 0.6, 5.2), P.planksDark, "CarriageRoof")
-		for _, w in { { -3, -2.7 }, { 3, -2.7 }, { -3, 2.7 }, { 3, 2.7 } } do
-			local p = Instance.new("Part")
-			p.Shape = Enum.PartType.Cylinder
-			p.Size = Vector3.new(0.5, 3.6, 3.6)
-			p.CFrame = base * CFrame.new(w[1], 1.8, w[2]) * CFrame.Angles(0, math.pi / 2, 0)
-			finish(p, P.planksDark, "Wheel")
-		end
-		box(base * CFrame.new(-7.5, 2.2, 0), Vector3.new(7, 0.4, 3.6), P.wood, "Shafts")
+		prop("Carriage", function()
+			local base = CFrame.new(x, 0, z) * CFrame.Angles(0, yaw, 0)
+			box(base * CFrame.new(0, 4, 0), Vector3.new(8, 4, 4.6), st, "CarriageBody")
+			box(base * CFrame.new(0, 6.3, 0), Vector3.new(8.6, 0.6, 5.2), P.planksDark, "CarriageRoof")
+			for _, w in { { -3, -2.7 }, { 3, -2.7 }, { -3, 2.7 }, { 3, 2.7 } } do
+				local p = Instance.new("Part")
+				p.Shape = Enum.PartType.Cylinder
+				p.Size = Vector3.new(0.5, 3.6, 3.6)
+				p.CFrame = base * CFrame.new(w[1], 1.8, w[2]) * CFrame.Angles(0, math.pi / 2, 0)
+				finish(p, P.planksDark, "Wheel")
+			end
+			box(base * CFrame.new(-7.5, 2.2, 0), Vector3.new(7, 0.4, 3.6), P.wood, "Shafts")
+		end)
 	end
 
 	-- Post-and-rail fence along X or Z at coordinate c, from a0..a1, skipping gate ranges.
@@ -377,8 +411,10 @@ function MapModule.build(): Model
 
 	-- Topiary: a clipped yew column (8 tall, too tall to jump onto) with a gold crown.
 	local function topiary(x: number, z: number)
-		blk(x - 2, 0, z - 2, x + 2, 8, z + 2, P.boxHedge, "Topiary")
-		blk(x - 1.2, 8, z - 1.2, x + 1.2, 10, z + 1.2, soft(P.leafGold), "TopiaryCrown")
+		prop("Topiary", function()
+			blk(x - 2, 0, z - 2, x + 2, 8, z + 2, P.boxHedge, "Topiary")
+			blk(x - 1.2, 8, z - 1.2, x + 1.2, 10, z + 1.2, soft(P.leafGold), "TopiaryCrown")
+		end)
 	end
 
 	-------------------------------------------------------------------------------------------

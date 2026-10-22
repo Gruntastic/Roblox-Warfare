@@ -1,9 +1,9 @@
 --!strict
--- Mode select ("Join"). Shown over the lobby whenever the player is not in a match and has not
--- queued: they pick a mode (or ANY) and the server puts them into the next match of that mode, or
--- straight into the running match when it is that mode. The server confirms the pick with the
--- player attribute QueuedMode; the lobby then shows the queue status and a CHANGE MODE button.
--- LOADOUT closes the menu to edit classes first; PlayMenu.open() brings it back.
+-- Mode select, opened by the lobby's QUEUE button: the player picks a mode (or ANY) and the server
+-- puts them into the next match of that mode, or straight into the running match when it is that
+-- mode. A squad leader's pick queues the whole squad. The server confirms the pick with the
+-- player attribute QueuedMode; the lobby then shows the queue status and LEAVE QUEUE.
+-- BACK TO SQUAD closes it without queueing. Each card shows its ForgeGUI mode icon when published.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -12,6 +12,7 @@ local ClientState = require(script.Parent.Parent.ClientState)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local Types = require(Shared.Types)
+local Assets = require(Shared.Config.Assets)
 
 local PlayMenu = {}
 
@@ -31,7 +32,7 @@ local BLURBS: { [string]: string } = {
 local gui: ScreenGui
 local cards: { [string]: { count: TextLabel, live: TextLabel, button: TextButton } } = {}
 local statusLabel: TextLabel
-local dismissed = false
+local dismissed = true -- closed until the lobby's QUEUE button opens it
 local pending: string? = nil
 
 local function shouldShow(): boolean
@@ -59,6 +60,10 @@ local function refresh()
 	else
 		statusLabel.Text = "PICK A MODE. THE NEXT MATCH PLAYS THE MOST PICKED MODE"
 	end
+	local party = ClientState.party
+	if party and #party.members > 1 then
+		statusLabel.Text ..= if party.leader == localPlayer.UserId then "   ·   YOUR SQUAD QUEUES WITH YOU" else "   ·   YOUR SQUAD LEADER'S PICK CARRIES THE SQUAD"
+	end
 end
 
 local function pick(id: string)
@@ -83,13 +88,27 @@ local function card(id: string, name: string, order: number, parent: Instance)
 	}, if id == "Any" then "Primary" else nil)
 	local textColor = if id == "Any" then C.OnAccent else C.Text
 	local dimColor = if id == "Any" then C.OnAccent else C.TextDim
+	local art = Assets.image("Mode." .. id)
+	local textRight = if art then -112 else -32
+	if art then
+		Theme.new("ImageLabel", {
+			Name = "ModeIcon",
+			BackgroundTransparency = 1,
+			Image = art,
+			ScaleType = Enum.ScaleType.Fit,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -12, 0, 12),
+			Size = UDim2.fromOffset(84, 84),
+			Parent = button,
+		}, { Theme.corner(6) })
+	end
 	Theme.label({
 		Text = string.upper(name),
 		Font = Theme.Fonts.Title,
 		TextSize = 24,
 		TextColor3 = textColor,
 		Position = UDim2.fromOffset(16, 12),
-		Size = UDim2.new(1, -32, 0, 30),
+		Size = UDim2.new(1, textRight, 0, 30),
 		Parent = button,
 	})
 	Theme.label({
@@ -100,7 +119,7 @@ local function card(id: string, name: string, order: number, parent: Instance)
 		TextWrapped = true,
 		TextYAlignment = Enum.TextYAlignment.Top,
 		Position = UDim2.fromOffset(16, 46),
-		Size = UDim2.new(1, -32, 0, 40),
+		Size = UDim2.new(1, textRight, 0, 40),
 		Parent = button,
 	})
 	local count = Theme.label({
@@ -191,7 +210,7 @@ function PlayMenu.init()
 	end
 	local loadout = Theme.button({
 		Name = "Loadout",
-		Text = "EDIT LOADOUT FIRST",
+		Text = "BACK TO SQUAD",
 		Font = Theme.Fonts.Bold,
 		TextSize = 18,
 		AnchorPoint = Vector2.new(0.5, 0),
@@ -207,12 +226,13 @@ function PlayMenu.init()
 
 	localPlayer:GetAttributeChangedSignal("QueuedMode"):Connect(function()
 		pending = nil
-		if localPlayer:GetAttribute("QueuedMode") == nil then
-			dismissed = false -- left the queue: back to mode select
+		if localPlayer:GetAttribute("QueuedMode") ~= nil then
+			dismissed = true -- queued: back to the staging room, which shows the queue status
 		end
 		refresh()
 	end)
 	ClientState.MatchStateChanged:Connect(refresh)
+	ClientState.PartyChanged:Connect(refresh)
 	ClientState.DeployedChanged:Connect(refresh)
 	refresh()
 end

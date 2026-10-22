@@ -126,8 +126,8 @@ export type Loadout = {
 export type ChallengeView = { id: string, text: string, progress: number, target: number, xp: number, done: boolean }
 
 export type CosmeticsView = {
-	equipped: { title: string, emblem: string?, camos: { [string]: string } }, -- camos: weaponId -> camoId (absent = Factory)
-	owned: { titles: { string }, emblems: { string }, camos: { [string]: { string } } }, -- camos per weapon id
+	equipped: { title: string, emblem: string?, gear: string?, camos: { [string]: string } }, -- camos: weaponId -> camoId (absent = Factory); gear nil = Config/Gear.Default
+	owned: { titles: { string }, emblems: { string }, gears: { string }, camos: { [string]: { string } } }, -- camos per weapon id
 }
 
 -- Sent on `StreakState` to the owner whenever it changes (kill, death, use, match start).
@@ -186,9 +186,17 @@ export type StoreView = {
 -- Sent on `CrateOpened` to the opener.
 export type CrateResultPayload = {
 	crateId: string,
-	kind: string?, -- "Camo" | "Title" | "Emblem"; nil when the crate gave credits
+	kind: string?, -- "Camo" | "Title" | "Emblem" | "Gear"; nil when the crate gave credits
 	id: string?,
 	credits: number,
+}
+
+-- Sent on `PartyState`: the player's squad (empty members = not in one) and invites waiting for them.
+export type PartyPayload = {
+	leader: number?, -- UserId
+	members: { number }, -- UserIds in join order, leader included
+	invites: { { userId: number, name: string } },
+	maxSize: number,
 }
 
 export type MatchResultsPayload = {

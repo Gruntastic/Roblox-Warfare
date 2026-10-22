@@ -5,7 +5,7 @@ Date: 2026-10-20. Severity: **Blocker** (must fix or clear before launch), **Min
 
 | # | Severity | Issue | Status |
 |---|---|---|---|
-| 1 | Blocker | New title "Roblox Blox Ops": confirm use of "Roblox" in the name against Roblox brand guidelines, and the closeness of "Blox Ops" to "Black Ops" (see LAUNCH_READINESS) | Owner |
+| 1 | Blocker | Title "Blox Ops": confirm the closeness of "Blox Ops" to "Black Ops" (see LAUNCH_READINESS) | Owner |
 | 2 | Blocker | DataStore persistence has never run for real (unpublished place, in-memory fallback) | Owner: publish and enable API access |
 | 3 | Blocker | Robux purchase never run end to end (Founder Pack product 3720442629 is now configured) | Owner: one test purchase on the published game |
 | 4 | Blocker | Multiplayer combat, objectives contested by both teams, killstreaks and perks in fights are untested | Needs a 2+ player session |
@@ -22,3 +22,9 @@ Date: 2026-10-20. Severity: **Blocker** (must fix or clear before launch), **Min
 | 15 | Note | A solo match shows DRAW (team modes) or "No outright winner" (FFA) | By design |
 | 16 | Note | One server runs one mode at a time. A player who picks a mode the queue did not choose waits for a later match (or switches to ANY). Cross-server matchmaking would be a follow-up | By design |
 | 17 | Minor | Toolbox sounds (AR, SMG, shotgun, pistol, suppressed, distant, dry fire, shell load, bolt, kill, hurt, impacts) are free community uploads whose licence cannot be verified; replace with the owner's licensed SFX when available. Equip, ADS, melee, footstep, UI and objective sounds are still empty | Open |
+| 18 | Blocker | The staging hangar, squad UI, gear fit on R15 bodies and procedural operator poses were written without a Studio run (no Studio in the build environment) | Needs a Studio playtest |
+| 19 | Minor | ForgeGUI art was published without a visual check (previews could not be opened from the build environment). Check every image in docs/ASSETS.md, especially the AI-drawn wordmark text | Owner |
+| 20 | Minor | Five ForgeGUI jobs ended "outcome unknown" (Gunsmith icon, Talon shirt, Arctic shirt and pants, NightOps shirt); those slots use code-drawn or colour fallbacks | Open |
+| 21 | Note | Operator animations are procedural because ForgeGUI cannot make R15 animations; gear is part-built, not mesh | By design |
+| 22 | Minor | ForgeGUI materials, skies and mesh models (guns, containers) are wired in without a Studio run: check the texture tint, the sky horizon and seams, and mesh fit/orientation (`Assets.ModelFlip`) | Needs a Studio playtest |
+| 23 | Note | InsertService loads the mesh models only when the experience is owned by the creator who published them (user 2930909850); elsewhere everything stays part-built | By design |

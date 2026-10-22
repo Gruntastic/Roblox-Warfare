@@ -3,11 +3,12 @@
 -- progress (weapon kills / headshots, lifetime stats, prestige reached) or from an inventory entry
 -- "<Kind>:<id>" (reserved for items obtained another way, e.g. the Phase 6 store).
 local Cosmetics = require(script.Parent.Parent.Config.Cosmetics)
+local Gear = require(script.Parent.Parent.Config.Gear)
 
 local CosmeticRules = {}
 
-export type Kind = "Camo" | "Title" | "Emblem"
-export type Equipped = { title: string, emblem: string?, camos: { [string]: string } }
+export type Kind = "Camo" | "Title" | "Emblem" | "Gear"
+export type Equipped = { title: string, emblem: string?, gear: string?, camos: { [string]: string } }
 
 local function inInventory(profile: any, kind: string, id: string): boolean
 	local inv = profile.inventory
@@ -60,9 +61,40 @@ function CosmeticRules.ownsEmblem(profile: any, emblemId: string): boolean
 	return def.source == nil and (profile.account and profile.account.prestige or 0) >= def.prestige
 end
 
+-- Operator gear sets: level unlocks (kept forever after a prestige) or inventory for store/crate sets.
+function CosmeticRules.ownsGear(profile: any, gearId: string): boolean
+	local def = Gear.byId[gearId]
+	if not def then
+		return false
+	end
+	if inInventory(profile, "Gear", gearId) then
+		return true
+	end
+	if def.source then
+		return false
+	end
+	local account = profile.account or {}
+	return (account.prestige or 0) > 0 or (account.level or 1) >= def.level
+end
+
+-- The gear set a profile wears: the equipped one while still owned, else the default.
+function CosmeticRules.gearOf(profile: any): string
+	local equipped = profile.equipped
+	local id = if type(equipped) == "table" then equipped.gear else nil
+	if type(id) == "string" and CosmeticRules.ownsGear(profile, id) then
+		return id
+	end
+	return Gear.Default
+end
+
 -- Everything a profile owns, for the client: camos per weapon id in `weaponIds`.
-function CosmeticRules.owned(profile: any, weaponIds: { string }): { titles: { string }, emblems: { string }, camos: { [string]: { string } } }
-	local out = { titles = {}, emblems = {}, camos = {} }
+function CosmeticRules.owned(profile: any, weaponIds: { string }): { titles: { string }, emblems: { string }, gears: { string }, camos: { [string]: { string } } }
+	local out = { titles = {}, emblems = {}, gears = {}, camos = {} }
+	for _, g in Gear.sets do
+		if CosmeticRules.ownsGear(profile, g.id) then
+			table.insert(out.gears, g.id)
+		end
+	end
 	for _, t in Cosmetics.titles do
 		if CosmeticRules.ownsTitle(profile, t.id) then
 			table.insert(out.titles, t.id)
@@ -87,7 +119,7 @@ end
 
 -- The equipped set with anything no longer owned (or malformed) replaced by defaults.
 function CosmeticRules.sanitizeEquipped(profile: any, equipped: any): Equipped
-	local out: Equipped = { title = Cosmetics.DefaultTitle, emblem = nil, camos = {} }
+	local out: Equipped = { title = Cosmetics.DefaultTitle, emblem = nil, gear = nil, camos = {} }
 	if type(equipped) ~= "table" then
 		return out
 	end
@@ -96,6 +128,9 @@ function CosmeticRules.sanitizeEquipped(profile: any, equipped: any): Equipped
 	end
 	if type(equipped.emblem) == "string" and CosmeticRules.ownsEmblem(profile, equipped.emblem) then
 		out.emblem = equipped.emblem
+	end
+	if type(equipped.gear) == "string" and equipped.gear ~= Gear.Default and CosmeticRules.ownsGear(profile, equipped.gear) then
+		out.gear = equipped.gear
 	end
 	if type(equipped.camos) == "table" then
 		for weaponId, camoId in equipped.camos do
@@ -134,6 +169,11 @@ function CosmeticRules.canEquip(profile: any, kind: any, id: any, weaponId: any)
 			return true, nil
 		end
 		return result(CosmeticRules.ownsEmblem(profile, id))
+	elseif kind == "Gear" then
+		if id == Gear.Default then
+			return true, nil
+		end
+		return result(CosmeticRules.ownsGear(profile, id))
 	end
 	return false, "kind"
 end

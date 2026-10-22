@@ -156,6 +156,20 @@ function MapModule.build(): Model
 		folder = f
 	end
 
+	-- Props: parts built inside prop("Key", fn) are tagged so EnvironmentService can lay a ForgeGUI
+	-- mesh (Assets.Models["Prop.Key"]) over them. Nested props belong to the outermost one.
+	local propKey: string? = nil
+	local propCount = 0
+	local function prop(key: string, fn: () -> ())
+		local outer = propKey
+		if outer == nil then
+			propCount += 1
+			propKey = key
+		end
+		fn()
+		propKey = outer
+	end
+
 	local function finish(p: BasePart, st: Style, name: string?)
 		p.Anchored = true
 		p.CanQuery = true
@@ -167,6 +181,10 @@ function MapModule.build(): Model
 		p.TopSurface = Enum.SurfaceType.Smooth
 		p.BottomSurface = Enum.SurfaceType.Smooth
 		p.Name = name or "Part"
+		if propKey then
+			p:SetAttribute("Prop", propKey)
+			p:SetAttribute("PropId", propCount)
+		end
 		p.Parent = folder
 	end
 
@@ -278,56 +296,70 @@ function MapModule.build(): Model
 	-- Props --------------------------------------------------------------------------------
 
 	local function crate(x: number, y: number, z: number, s: number, yaw: number?)
-		box(CFrame.new(x, y + s / 2, z) * CFrame.Angles(0, yaw or 0, 0), Vector3.new(s, s, s), P.wood, "Crate")
+		prop("Crate", function()
+			box(CFrame.new(x, y + s / 2, z) * CFrame.Angles(0, yaw or 0, 0), Vector3.new(s, s, s), P.wood, "Crate")
+		end)
 	end
 
 	-- Wheelie dumpster, long axis along X (alongZ = false) or Z.
 	local function dumpster(x: number, z: number, alongZ: boolean, st: Style)
-		local hx, hz = if alongZ then 1.8 else 3.2, if alongZ then 3.2 else 1.8
-		blk(x - hx, 0.4, z - hz, x + hx, 4.4, z + hz, st, "Dumpster")
-		blk(x - hx - 0.1, 4.4, z - hz - 0.1, x + hx + 0.1, 4.8, z + hz + 0.1, P.rubber, "DumpsterLid")
+		prop("Dumpster", function()
+			local hx, hz = if alongZ then 1.8 else 3.2, if alongZ then 3.2 else 1.8
+			blk(x - hx, 0.4, z - hz, x + hx, 4.4, z + hz, st, "Dumpster")
+			blk(x - hx - 0.1, 4.4, z - hz - 0.1, x + hx + 0.1, 4.8, z + hz + 0.1, P.rubber, "DumpsterLid")
+		end)
 	end
 
 	-- Parked car: body + cabin + 4 wheels. Long axis along X.
 	local function car(x: number, z: number, st: Style)
-		blk(x - 5, 0.8, z - 2.4, x + 5, 3, z + 2.4, st, "CarBody")
-		blk(x - 2.6, 3, z - 2.1, x + 2.4, 4.8, z + 2.1, st, "CarCabin")
-		blk(x - 2.5, 3.2, z - 2.15, x + 2.3, 4.6, z + 2.15, P.glassDark, "CarWindows")
-		for _, w in { { -3.3, -2.3 }, { 3.3, -2.3 }, { -3.3, 2.3 }, { 3.3, 2.3 } } do
-			cylH(x + w[1], 1, z + w[2], 0.8, 2, true, P.rubber, "Wheel")
-		end
+		prop("Car", function()
+			blk(x - 5, 0.8, z - 2.4, x + 5, 3, z + 2.4, st, "CarBody")
+			blk(x - 2.6, 3, z - 2.1, x + 2.4, 4.8, z + 2.1, st, "CarCabin")
+			blk(x - 2.5, 3.2, z - 2.15, x + 2.3, 4.6, z + 2.15, P.glassDark, "CarWindows")
+			for _, w in { { -3.3, -2.3 }, { 3.3, -2.3 }, { -3.3, 2.3 }, { 3.3, 2.3 } } do
+				cylH(x + w[1], 1, z + w[2], 0.8, 2, true, P.rubber, "Wheel")
+			end
+		end)
 	end
 
 	-- Delivery van: taller, full cover. Long axis along X.
 	local function van(x: number, z: number, st: Style)
-		blk(x - 7, 0.8, z - 2.8, x + 7, 7.4, z + 2.8, st, "VanBody")
-		blk(x + 4.8, 4, z - 2.85, x + 6.8, 6.6, z + 2.85, P.glassDark, "VanWindscreen")
-		for _, w in { { -4.6, -2.7 }, { 4.6, -2.7 }, { -4.6, 2.7 }, { 4.6, 2.7 } } do
-			cylH(x + w[1], 1.1, z + w[2], 0.8, 2.2, true, P.rubber, "Wheel")
-		end
+		prop("Van", function()
+			blk(x - 7, 0.8, z - 2.8, x + 7, 7.4, z + 2.8, st, "VanBody")
+			blk(x + 4.8, 4, z - 2.85, x + 6.8, 6.6, z + 2.85, P.glassDark, "VanWindscreen")
+			for _, w in { { -4.6, -2.7 }, { 4.6, -2.7 }, { -4.6, 2.7 }, { 4.6, 2.7 } } do
+				cylH(x + w[1], 1.1, z + w[2], 0.8, 2.2, true, P.rubber, "Wheel")
+			end
+		end)
 	end
 
 	-- Warm sodium/neon street lamp with a real light.
 	local function streetLamp(x: number, z: number, armDir: number)
-		cylY(x, 0, z, 13, 0.7, P.ironGreen, "LampPost")
-		blk(x - 0.5, 0, z - 0.5, x + 0.5, 1.2, z + 0.5, P.ironGreen, "LampBase")
-		blk(x - 0.25, 12.6, z, x + 0.25, 13, z + armDir * 2.6, P.ironGreen, "LampArm")
-		blk(x - 0.7, 12, z + armDir * 2.2 - 0.7, x + 0.7, 12.6, z + armDir * 2.2 + 0.7, P.metalDark, "LampHood")
-		local bulb = blk(x - 0.5, 11.6, z + armDir * 2.2 - 0.5, x + 0.5, 12, z + armDir * 2.2 + 0.5, P.lamp, "LampBulb")
-		light(bulb, P.lamp.color, 30, 1.6)
+		prop("StreetLamp", function()
+			cylY(x, 0, z, 13, 0.7, P.ironGreen, "LampPost")
+			blk(x - 0.5, 0, z - 0.5, x + 0.5, 1.2, z + 0.5, P.ironGreen, "LampBase")
+			blk(x - 0.25, 12.6, z, x + 0.25, 13, z + armDir * 2.6, P.ironGreen, "LampArm")
+			blk(x - 0.7, 12, z + armDir * 2.2 - 0.7, x + 0.7, 12.6, z + armDir * 2.2 + 0.7, P.metalDark, "LampHood")
+			local bulb = blk(x - 0.5, 11.6, z + armDir * 2.2 - 0.5, x + 0.5, 12, z + armDir * 2.2 + 0.5, P.lamp, "LampBulb")
+			light(bulb, P.lamp.color, 30, 1.6)
+		end)
 	end
 
 	local function bench(x: number, z: number, len: number, alongZ: boolean)
-		local hx, hz = if alongZ then 0.9 else len / 2, if alongZ then len / 2 else 0.9
-		blk(x - hx, 0, z - hz, x + hx, 1.6, z + hz, P.woodDark, "Bench")
-		local bx, bz = if alongZ then 0.25 else len / 2, if alongZ then len / 2 else 0.25
-		blk(x - bx, 1.6, z - bz, x + bx, 3.4, z + bz, P.wood, "BenchBack")
+		prop("Bench", function()
+			local hx, hz = if alongZ then 0.9 else len / 2, if alongZ then len / 2 else 0.9
+			blk(x - hx, 0, z - hz, x + hx, 1.6, z + hz, P.woodDark, "Bench")
+			local bx, bz = if alongZ then 0.25 else len / 2, if alongZ then len / 2 else 0.25
+			blk(x - bx, 1.6, z - bz, x + bx, 3.4, z + bz, P.wood, "BenchBack")
+		end)
 	end
 
 	local function tree(x: number, z: number, h: number)
-		cylY(x, 0, z, h, 1.6, P.bark, "Trunk")
-		blk(x - 4.5, h - 1, z - 4.5, x + 4.5, h + 5, z + 4.5, P.leaves, "Canopy")
-		blk(x - 3, h + 5, z - 3, x + 3, h + 7, z + 3, P.leaves, "Canopy")
+		prop("StreetTree", function()
+			cylY(x, 0, z, h, 1.6, P.bark, "Trunk")
+			blk(x - 4.5, h - 1, z - 4.5, x + 4.5, h + 5, z + 4.5, P.leaves, "Canopy")
+			blk(x - 3, h + 5, z - 3, x + 3, h + 7, z + 3, P.leaves, "Canopy")
+		end)
 	end
 
 	local function puddle(x: number, z: number, sx: number, sz: number)

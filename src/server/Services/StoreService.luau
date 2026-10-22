@@ -43,9 +43,11 @@ local function reward(player: Player, kind: string, data: any)
 	if not profile then
 		return
 	end
-	local credits, crates = 0, 0
+	local credits, crates, gearCrates = 0, 0, 0
 	if kind == "levels" and type(data) == "number" and data > 0 then
 		crates = StoreRules.addCrates(profile, "Supply", data * Store.CratePerLevelUp)
+		local level = profile.account.level
+		gearCrates = StoreRules.addCrates(profile, "Gear", StoreRules.gearCratesForLevels(level - data, level))
 	elseif kind == "match" then
 		credits = StoreRules.addCredits(profile, Store.Credits.MatchComplete + (if data == true then Store.Credits.MatchWin else 0))
 	elseif kind == "challenge" then
@@ -62,7 +64,10 @@ local function reward(player: Player, kind: string, data: any)
 	if crates > 0 then
 		notify(player, if crates == 1 then "+1 SUPPLY CRATE" else ("+%d SUPPLY CRATES"):format(crates), "Info")
 	end
-	if credits > 0 or crates > 0 then
+	if gearCrates > 0 then
+		notify(player, if gearCrates == 1 then "+1 GEAR CRATE" else ("+%d GEAR CRATES"):format(gearCrates), "Info")
+	end
+	if credits > 0 or crates > 0 or gearCrates > 0 then
 		DataService.markDirty(player)
 		ProgressionService.sync(player)
 	end
@@ -170,7 +175,8 @@ function StoreService.init()
 	end)
 
 	-- QA hooks, Studio only and only on temporary (unsaved) profiles:
-	--   QA_GrantCredits = N adds N credits; QA_GrantCrates = N adds N supply crates.
+	--   QA_GrantCredits = N adds N credits; QA_GrantCrates = N adds N supply crates;
+	--   QA_GrantGearCrates = N adds N gear crates.
 	if RunService:IsStudio() then
 		local function hook(name: string, apply: (any, number) -> ())
 			workspace:GetAttributeChangedSignal(name):Connect(function()
@@ -194,6 +200,9 @@ function StoreService.init()
 		end)
 		hook("QA_GrantCrates", function(profile, n)
 			StoreRules.addCrates(profile, "Supply", n)
+		end)
+		hook("QA_GrantGearCrates", function(profile, n)
+			StoreRules.addCrates(profile, "Gear", n)
 		end)
 	end
 end

@@ -36,7 +36,7 @@ function StoreRulesUI.credits(n: number): string
 	return out .. " CR"
 end
 
--- Ownership from a CosmeticsView (`owned.titles`, `owned.emblems`, `owned.camos[weaponId]`).
+-- Ownership from a CosmeticsView (`owned.titles`, `owned.emblems`, `owned.gears`, `owned.camos[weaponId]`).
 -- Store camos cover every weapon, so any weapon's list answers for a camo.
 function StoreRulesUI.owns(cosmetics: any, kind: string, id: string): boolean
 	if type(cosmetics) ~= "table" or type(cosmetics.owned) ~= "table" then
@@ -47,6 +47,8 @@ function StoreRulesUI.owns(cosmetics: any, kind: string, id: string): boolean
 		return type(owned.titles) == "table" and table.find(owned.titles, id) ~= nil
 	elseif kind == "Emblem" then
 		return type(owned.emblems) == "table" and table.find(owned.emblems, id) ~= nil
+	elseif kind == "Gear" then
+		return type(owned.gears) == "table" and table.find(owned.gears, id) ~= nil
 	elseif kind == "Camo" and type(owned.camos) == "table" then
 		for _, list in owned.camos do
 			if type(list) == "table" and table.find(list, id) ~= nil then

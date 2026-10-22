@@ -18,6 +18,9 @@ local MatchRules = require(Shared.Pure.MatchRules)
 local ModesConfig = require(Shared.Config.Modes)
 local DataService = require(script.Parent.DataService)
 local ProgressionService = require(script.Parent.ProgressionService)
+local PartyService = require(script.Parent.PartyService)
+local OperatorService = require(script.Parent.OperatorService)
+local EnvironmentService = require(script.Parent.EnvironmentService)
 local CombatService = require(script.Parent.CombatService)
 local KillstreakService = require(script.Parent.KillstreakService)
 local MovementGuard = require(script.Parent.MovementGuard)
@@ -239,6 +242,7 @@ local function loadMap(id: string)
 	mapId = id
 	CombatService.killY = model:GetAttribute("KillY") or -200
 	applyLighting(def)
+	EnvironmentService.dressMap(model, id)
 	stateDirty = true
 end
 
@@ -338,7 +342,17 @@ local function assignTeam(player: Player)
 	for _, t in Match.Teams do
 		table.insert(ids, t.id)
 	end
-	line.team = TeamsLogic.pick(ids, counts, teamScores)
+	local picked = TeamsLogic.pick(ids, counts, teamScores)
+	-- squads stay together when that keeps the teams within one player of each other
+	for _, mate in PartyService.mates(player) do
+		local mateLine = lines[mate]
+		local mateTeam = mateLine and mateLine.team
+		if mateTeam and mateTeam ~= picked and (counts[mateTeam] or 0) + 1 - (counts[picked] or 0) <= 1 then
+			picked = mateTeam
+			break
+		end
+	end
+	line.team = picked
 	player.Team = teamInstances[line.team :: any]
 	player:SetAttribute("Team", line.team)
 end
@@ -370,6 +384,7 @@ local function spawnPlayer(player: Player)
 	if root and frozen then
 		root.Anchored = true
 	end
+	OperatorService.dress(player, character)
 	local loadout = ProgressionService.currentLoadout(player)
 	CombatService.onSpawned(player, character, loadout, mode.spawnProtection)
 	KillstreakService.onSpawned(player, loadout)
@@ -921,6 +936,19 @@ function MatchService.init()
 	end
 	Net.event("RequestDeploy").OnServerEvent:Connect(lateJoin)
 
+	local function setQueue(player: Player, pick: string?)
+		queued[player] = pick :: any
+		player:SetAttribute("QueuedMode", pick)
+		if MatchService.phase == "Lobby" then
+			syncOptionModes()
+		end
+		stateDirty = true
+		if pick ~= nil and (MatchService.phase == "Playing" or MatchService.phase == "Countdown") then
+			lateJoin(player)
+		end
+	end
+	PartyService.onJoinedQueue = setQueue
+
 	Net.event("JoinQueue").OnServerEvent:Connect(function(player, pick)
 		if pick ~= nil and (type(pick) ~= "string" or (pick ~= MatchRules.ANY and not table.find(Match.ModeRotation, pick))) then
 			return
@@ -930,14 +958,14 @@ function MatchService.init()
 			return
 		end
 		lastQueueChange[player] = t
-		queued[player] = pick
-		player:SetAttribute("QueuedMode", pick)
-		if MatchService.phase == "Lobby" then
-			syncOptionModes()
-		end
-		stateDirty = true
-		if pick ~= nil and (MatchService.phase == "Playing" or MatchService.phase == "Countdown") then
-			lateJoin(player)
+		setQueue(player, pick)
+		-- a squad leader queues the whole squad (leaving the queue only takes the leader out)
+		if pick ~= nil and PartyService.isLeader(player) then
+			for _, mate in PartyService.mates(player) do
+				if queued[mate] ~= pick then
+					setQueue(mate, pick)
+				end
+			end
 		end
 	end)
 

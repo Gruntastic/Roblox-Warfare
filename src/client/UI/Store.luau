@@ -1,12 +1,14 @@
 --!strict
 -- Store (Phase 6): full-screen lobby menu with three tabs.
---   SHOP           store cosmetics bought with credits earned by play (BuyItem)
---   SUPPLY CRATES  crates earned by play: count, OPEN (OpenCrate), the last result, and the odds
+--   LOOT CRATES    crates earned by play (Supply and Gear): pick a crate, OPEN (OpenCrate) with a
+--                  shake-and-reveal animation, the last result, and the odds
+--   SHOP           store cosmetics and gear sets bought with credits earned by play (BuyItem)
 --   PREMIUM        fixed Robux bundles (MarketplaceService:PromptProductPurchase); the server grants
 --                  them in ProcessReceipt. Bundles without a product id show COMING SOON.
 --
 -- Public API (the Lobby's STORE button is the caller):
---   Store.open(onClosed?) -> boolean, Store.close(), Store.isOpen() -> boolean
+--   Store.open(onClosed?, tab?) -> boolean, Store.close(), Store.isOpen() -> boolean
+--   (tab: "Crates" | "Shop" | "Premium"; the lobby's SHOP button opens on the crates)
 -- BACK / Backspace / gamepad B close it. Everything is a view of the server's ProfileSummary.
 local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
@@ -24,21 +26,24 @@ local Types = require(Shared.Types)
 local StoreConfig = require(Shared.Config.Store)
 local CosmeticsConfig = require(Shared.Config.Cosmetics)
 local StoreRules = require(Shared.Pure.StoreRules)
+local GearConfig = require(Shared.Config.Gear)
+local Assets = require(Shared.Config.Assets)
+local TweenService = game:GetService("TweenService")
 
 local Store = {}
 
 local C = Theme.Colors
 local BACK_ACTION = "COR_StoreBack"
-local CRATE_NOTE = "Crates are earned by play only (every level-up, and once a day for finishing all three daily challenges). "
-	.. "They cannot be bought. You never get an item you already own; once you own everything, a crate gives "
-	.. StoreRulesUI.credits(StoreConfig.crateById.Supply.duplicateCredits)
-	.. "."
+local CRATE_NOTE = "Crates are earned by play only: a Supply Crate for every level-up and for finishing all three daily challenges, "
+	.. "a Gear Crate every "
+	.. tostring(StoreConfig.GearCrateEveryLevels)
+	.. " levels. They cannot be bought. You never get an item you already own; once you own everything, a crate gives credits instead."
 local PREMIUM_NOTE = "Every bundle is cosmetic and always gives exactly what is listed. Nothing paid is random."
 
 type Tab = "Shop" | "Crates" | "Premium"
 local TABS: { { id: Tab, text: string } } = {
+	{ id = "Crates", text = "LOOT CRATES" },
 	{ id = "Shop", text = "SHOP" },
-	{ id = "Crates", text = "SUPPLY CRATES" },
 	{ id = "Premium", text = "PREMIUM" },
 }
 
@@ -48,7 +53,9 @@ local body: Frame
 local creditsLabel: TextLabel
 local tabButtons: { [string]: TextButton } = {}
 local isOpenFlag = false
-local currentTab: Tab = "Shop"
+local currentTab: Tab = "Crates"
+local selectedCrate = "Supply"
+local revealAt = 0 -- os.clock() of the last CrateOpened: the result card pops in once
 local onClosedCb: (() -> ())? = nil
 local openConns: { any } = {}
 local lastResult: Types.CrateResultPayload? = nil
@@ -80,7 +87,11 @@ local function storeView(profile: Types.ProfileSummary?): Types.StoreView?
 end
 
 local function nameOf(kind: string, id: string): string
-	local def: any = if kind == "Camo" then CosmeticsConfig.camoById[id] elseif kind == "Title" then CosmeticsConfig.titleById[id] else CosmeticsConfig.emblemById[id]
+	local def: any = if kind == "Camo"
+		then CosmeticsConfig.camoById[id]
+		elseif kind == "Title" then CosmeticsConfig.titleById[id]
+		elseif kind == "Gear" then GearConfig.byId[id]
+		else CosmeticsConfig.emblemById[id]
 	return if def then def.name else id
 end
 
@@ -98,7 +109,22 @@ local function preview(kind: string, id: string, size: number, parent: Instance)
 		Size = UDim2.fromOffset(size, size),
 		Parent = parent,
 	}, { Theme.corner(8) :: Instance })
-	if kind == "Camo" then
+	if kind == "Gear" then
+		-- helmet / vest / uniform stripes
+		local def = GearConfig.byId[id]
+		if def then
+			frame.ClipsDescendants = true
+			for i, color in { def.helmet, def.vest, def.shirt } do
+				Theme.new("Frame", {
+					BackgroundColor3 = color,
+					BorderSizePixel = 0,
+					Position = UDim2.fromScale((i - 1) / 3, 0),
+					Size = UDim2.fromScale(1 / 3, 1),
+					Parent = frame,
+				})
+			end
+		end
+	elseif kind == "Camo" then
 		local def = CosmeticsConfig.camoById[id]
 		if def then
 			frame.BackgroundColor3 = def.color
@@ -223,29 +249,137 @@ local function renderShop(profile: Types.ProfileSummary, view: Types.StoreView)
 	end
 end
 
+-- Crate art from ForgeGUI, or a code-drawn crate when it is not published yet.
+local function crateArt(crateId: string, size: number, parent: Instance): GuiObject
+	local image = Assets.image("Crate." .. crateId)
+	if image then
+		return Theme.new("ImageLabel", {
+			Name = "CrateArt",
+			BackgroundTransparency = 1,
+			Image = image,
+			ScaleType = Enum.ScaleType.Fit,
+			Size = UDim2.fromOffset(size, size),
+			Parent = parent,
+		})
+	end
+	local box: Frame = Theme.new("Frame", {
+		Name = "CrateArt",
+		BackgroundColor3 = if crateId == "Gear" then Color3.fromRGB(30, 32, 36) else Color3.fromRGB(74, 80, 52),
+		BorderSizePixel = 0,
+		Size = UDim2.fromOffset(size, size * 0.72),
+		Parent = parent,
+	}, { Theme.corner(6) :: Instance, Theme.stroke(C.Accent, 2, 0.3) })
+	for _, y in { 0.22, 0.78 } do
+		Theme.new("Frame", {
+			BackgroundColor3 = Color3.fromRGB(40, 42, 34),
+			BorderSizePixel = 0,
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.fromScale(0, y),
+			Size = UDim2.new(1, 0, 0, math.max(4, size * 0.06)),
+			Parent = box,
+		})
+	end
+	Theme.new("Frame", {
+		BackgroundColor3 = C.Accent,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.4, 0.08),
+		Parent = box,
+	})
+	return box
+end
+
 local function renderCrates(profile: Types.ProfileSummary, view: Types.StoreView)
-	local crate = StoreConfig.crateById.Supply
+	if not StoreConfig.crateById[selectedCrate] then
+		selectedCrate = StoreConfig.crates[1].id
+	end
+	local crate = StoreConfig.crateById[selectedCrate]
 	local count = view.crates[crate.id] or 0
 
-	local left = Theme.panel({ Size = UDim2.new(0.42, -10, 1, 0), Parent = body })
-	Theme.padding(22).Parent = left
-	Theme.label({ Text = string.upper(crate.name), Font = Theme.Fonts.Title, TextSize = 32, Size = UDim2.new(1, 0, 0, 40), Parent = left })
+	-- crate picker
+	local picker = Theme.panel({ Size = UDim2.new(0.22, -14, 1, 0), Parent = body })
+	Theme.padding(14).Parent = picker
+	Theme.label({ Text = "YOUR CRATES", Font = Theme.Fonts.Bold, TextSize = 15, TextColor3 = C.Accent, Size = UDim2.new(1, 0, 0, 22), Parent = picker })
+	local pickList: Frame = Theme.new("Frame", {
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, 32),
+		Size = UDim2.new(1, 0, 1, -32),
+		Parent = picker,
+	}, { Theme.list(Enum.FillDirection.Vertical, 10) })
+	for i, c in StoreConfig.crates do
+		local n = view.crates[c.id] or 0
+		local on = c.id == crate.id
+		local card = Theme.button({ Name = c.id, Size = UDim2.new(1, 0, 0, 120), LayoutOrder = i, Parent = pickList })
+		Theme.setButtonColor(card, if on then C.PanelHover else C.PanelLight)
+		if on then
+			Theme.stroke(C.Accent, 2, 0.1).Parent = card
+		end
+		local art = crateArt(c.id, 92, card)
+		art.Position = UDim2.fromOffset(8, 14)
+		Theme.label({ Text = string.upper(c.name), Font = Theme.Fonts.Bold, TextSize = 16, Position = UDim2.fromOffset(110, 30), Size = UDim2.new(1, -116, 0, 22), Parent = card })
+		Theme.label({
+			Text = string.format("%d TO OPEN", n),
+			Font = Theme.Fonts.Bold,
+			TextSize = 13,
+			TextColor3 = if n > 0 then C.Accent else C.TextMuted,
+			Position = UDim2.fromOffset(110, 56),
+			Size = UDim2.new(1, -116, 0, 18),
+			Parent = card,
+		})
+		card.Activated:Connect(function()
+			if isOpenFlag and not opening and selectedCrate ~= c.id then
+				selectedCrate = c.id
+				lastResult = nil
+				render()
+			end
+		end)
+	end
+
+	-- stage: the crate, OPEN, and the reveal
+	local stage = Theme.panel({ Size = UDim2.new(0.4, -14, 1, 0), Parent = body })
+	Theme.padding(22).Parent = stage
+	Theme.label({ Text = string.upper(crate.name), Font = Theme.Fonts.Title, TextSize = 32, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 40), Parent = stage })
 	Theme.label({
 		Text = string.format("%d UNOPENED", count),
 		Font = Theme.Fonts.Bold,
 		TextSize = 16,
 		TextColor3 = if count > 0 then C.Accent else C.TextDim,
-		Position = UDim2.fromOffset(0, 44),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(0, 42),
 		Size = UDim2.new(1, 0, 0, 20),
-		Parent = left,
+		Parent = stage,
 	})
+	local holder: Frame = Theme.new("Frame", {
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 74),
+		Size = UDim2.fromOffset(240, 240),
+		Parent = stage,
+	})
+	local art = crateArt(crate.id, 240, holder)
+	art.AnchorPoint = Vector2.new(0.5, 0.5)
+	art.Position = UDim2.fromScale(0.5, 0.5)
+	if opening then
+		-- shake while the server rolls
+		task.spawn(function()
+			local i = 0
+			while opening and art.Parent do
+				i += 1
+				art.Rotation = if i % 2 == 0 then 6 else -6
+				art.Position = UDim2.new(0.5, (i % 3 - 1) * 4, 0.5, 0)
+				task.wait(0.05)
+			end
+		end)
+	end
 	local open = actionButton({ text = if opening then "OPENING..." else "OPEN CRATE", enabled = count > 0 and not opening }, {
 		Name = "OpenCrate",
 		Font = Theme.Fonts.Title,
 		TextSize = 24,
-		Position = UDim2.fromOffset(0, 84),
+		AnchorPoint = Vector2.new(0, 0),
+		Position = UDim2.fromOffset(0, 330),
 		Size = UDim2.new(1, 0, 0, 64),
-		Parent = left,
+		Parent = stage,
 	})
 	open.Activated:Connect(function()
 		if isOpenFlag and open.Active and not opening then
@@ -260,8 +394,8 @@ local function renderCrates(profile: Types.ProfileSummary, view: Types.StoreView
 			end)
 		end
 	end)
-	if lastResult then
-		local resultBox = Theme.panel({ Name = "Result", Position = UDim2.fromOffset(0, 168), Size = UDim2.new(1, 0, 0, 120), Parent = left })
+	if lastResult and lastResult.crateId == crate.id and not opening then
+		local resultBox = Theme.panel({ Name = "Result", Position = UDim2.fromOffset(0, 410), Size = UDim2.new(1, 0, 0, 120), Parent = stage })
 		resultBox.BackgroundColor3 = C.PanelLight
 		Theme.stroke(C.Accent, 2, 0).Parent = resultBox
 		Theme.padding(12).Parent = resultBox
@@ -286,11 +420,25 @@ local function renderCrates(profile: Types.ProfileSummary, view: Types.StoreView
 			Size = UDim2.new(1, -112, 0, 48),
 			Parent = resultBox,
 		})
+		-- reveal once: flash and pop the card in
+		if os.clock() - revealAt < 0.3 then
+			local scale: UIScale = Theme.new("UIScale", { Scale = 0.6, Parent = resultBox })
+			TweenService:Create(scale, Theme.Tween.Pop, { Scale = 1 }):Play()
+			local flash: Frame = Theme.new("Frame", {
+				BackgroundColor3 = C.Accent,
+				BackgroundTransparency = 0.2,
+				BorderSizePixel = 0,
+				Size = UDim2.fromScale(1, 1),
+				ZIndex = 5,
+				Parent = holder,
+			}, { Theme.corner(120) :: Instance })
+			TweenService:Create(flash, Theme.Tween.Slow, { BackgroundTransparency = 1, Size = UDim2.fromScale(1.6, 1.6), Position = UDim2.fromScale(-0.3, -0.3) }):Play()
+		end
 	end
-	note(CRATE_NOTE, left, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 90) })
+	note(CRATE_NOTE, stage, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 70), TextSize = 12 })
 
 	-- odds
-	local right = Theme.panel({ Size = UDim2.new(0.58, -10, 1, 0), Parent = body })
+	local right = Theme.panel({ Size = UDim2.new(0.38, -14, 1, 0), Parent = body })
 	Theme.padding(22).Parent = right
 	Theme.label({ Text = "CONTENTS AND ODDS", Font = Theme.Fonts.Bold, TextSize = 15, TextColor3 = C.Accent, Size = UDim2.new(1, 0, 0, 22), Parent = right })
 	local rows: ScrollingFrame = Theme.new("ScrollingFrame", {
@@ -316,7 +464,7 @@ local function renderCrates(profile: Types.ProfileSummary, view: Types.StoreView
 			TextSize = 15,
 			TextColor3 = if owned then C.TextMuted else C.Text,
 			Position = UDim2.fromOffset(56, 0),
-			Size = UDim2.new(1, -200, 1, 0),
+			Size = UDim2.new(1, -170, 1, 0),
 			Parent = row,
 		})
 		Theme.label({
@@ -327,7 +475,7 @@ local function renderCrates(profile: Types.ProfileSummary, view: Types.StoreView
 			TextXAlignment = Enum.TextXAlignment.Right,
 			AnchorPoint = Vector2.new(1, 0),
 			Position = UDim2.new(1, -14, 0, 0),
-			Size = UDim2.fromOffset(120, 52),
+			Size = UDim2.fromOffset(100, 52),
 			Parent = row,
 		})
 	end
@@ -425,12 +573,15 @@ function Store.close()
 	end
 end
 
-function Store.open(onClosed: (() -> ())?): boolean
+function Store.open(onClosed: (() -> ())?, tab: string?): boolean
 	if isOpenFlag then
 		Store.close()
 	end
 	if ClientState.deployed then
 		return false
+	end
+	if tab == "Crates" or tab == "Shop" or tab == "Premium" then
+		currentTab = tab
 	end
 	isOpenFlag = true
 	onClosedCb = onClosed
@@ -481,7 +632,7 @@ function Store.init()
 	local top: Frame = Theme.new("Frame", { Name = "Header", BackgroundTransparency = 1, Position = UDim2.fromOffset(48, 28), Size = UDim2.new(1, -96, 0, 96), Parent = root })
 	Theme.new("Frame", { BackgroundColor3 = C.Accent, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 8), Size = UDim2.fromOffset(8, 80), Parent = top })
 	Theme.label({ Text = "Q U A R T E R M A S T E R", Font = Theme.Fonts.Bold, TextSize = 18, TextColor3 = C.Accent, Position = UDim2.fromOffset(22, 6), Size = UDim2.new(0.6, 0, 0, 22), Parent = top })
-	Theme.label({ Text = "STORE", Font = Theme.Fonts.Title, TextSize = 44, Position = UDim2.fromOffset(20, 28), Size = UDim2.new(0.6, 0, 0, 48), Parent = top })
+	Theme.label({ Text = "SHOP", Font = Theme.Fonts.Title, TextSize = 44, Position = UDim2.fromOffset(20, 28), Size = UDim2.new(0.6, 0, 0, 48), Parent = top })
 	Theme.label({ Text = "CREDITS", Font = Theme.Fonts.Bold, TextSize = 14, TextColor3 = C.TextDim, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 14), Size = UDim2.fromOffset(300, 18), Parent = top })
 	creditsLabel = Theme.label({
 		Name = "Credits",
@@ -530,6 +681,7 @@ function Store.init()
 	Net.event("CrateOpened").OnClientEvent:Connect(function(payload: Types.CrateResultPayload)
 		lastResult = payload
 		opening = false
+		revealAt = os.clock()
 		if isOpenFlag then
 			render()
 		end

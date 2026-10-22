@@ -11,6 +11,7 @@ local Net = require(Shared.Net)
 local Weapons = require(Shared.Config.Weapons)
 local Progression = require(Shared.Config.Progression)
 local Challenges = require(Shared.Config.Challenges)
+local Gear = require(Shared.Config.Gear)
 local Cosmetics = require(Shared.Config.Cosmetics)
 local ChallengeRules = require(Shared.Pure.ChallengeRules)
 local CosmeticRules = require(Shared.Pure.CosmeticRules)
@@ -140,6 +141,8 @@ local function onEquipCosmetic(player: Player, kind: any, id: any, weaponId: any
 		equipped.title = id
 	elseif kind == "Emblem" then
 		equipped.emblem = if id == "" then nil else id
+	elseif kind == "Gear" then
+		equipped.gear = if id == Gear.Default then nil else id
 	end
 	DataService.markDirty(player)
 	ProgressionService.sync(player)

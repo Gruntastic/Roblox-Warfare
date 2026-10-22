@@ -22,7 +22,7 @@ export type Loadout = {
 	streaks: { string }, -- up to three killstreak ids; checked by StreakRules on use
 }
 export type ChallengeEntry = { id: string, progress: number, done: boolean }
-export type Equipped = { title: string, emblem: string?, camos: { [string]: string } }
+export type Equipped = { title: string, emblem: string?, gear: string?, camos: { [string]: string } }
 export type Profile = {
 	version: number,
 	account: { level: number, xp: number, prestige: number },
@@ -256,6 +256,7 @@ function ProfileSchema.migrate(data: any, now: number, loadoutSlots: number, val
 		-- shape only; ownership is re-checked by CosmeticRules.sanitizeEquipped on use
 		d.equipped.title = if type(eq.title) == "string" and #eq.title <= 32 then eq.title else d.equipped.title
 		d.equipped.emblem = if type(eq.emblem) == "string" and #eq.emblem <= 32 then eq.emblem else nil
+		d.equipped.gear = if type(eq.gear) == "string" and #eq.gear <= 32 then eq.gear else nil
 		if type(eq.camos) == "table" then
 			for weaponId, camoId in eq.camos do
 				if type(weaponId) == "string" and type(camoId) == "string" and #weaponId <= 32 and #camoId <= 32 then

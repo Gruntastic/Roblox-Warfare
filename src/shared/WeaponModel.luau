@@ -4,8 +4,10 @@
 -- The PrimaryPart "GripOrigin" sits at the grip origin. Two Attachments are added to it:
 -- "Muzzle" (tracer / flash origin) and "Sight" (the eye point ADS aligns the camera to).
 local Shared = script.Parent
+local Assets = require(Shared.Config.Assets)
 local Attachments = require(Shared.Config.Attachments)
 local Cosmetics = require(Shared.Config.Cosmetics)
+local ModelSkin = require(Shared.ModelSkin)
 local WeaponStats = require(Shared.Pure.WeaponStats)
 
 local WeaponModel = {}
@@ -49,6 +51,17 @@ function WeaponModel.applyCamo(model: Model, camoId: string?)
 			p.Material = camo.material
 		end
 	end
+	-- a ForgeGUI mesh skin drops its texture and takes the camo colour instead
+	local skin = model:FindFirstChild("Skin")
+	if skin then
+		for _, d in skin:GetDescendants() do
+			if d:IsA("MeshPart") then
+				d.TextureID = ""
+				d.Color = camo.color
+				d.Material = camo.material
+			end
+		end
+	end
 end
 
 function WeaponModel.build(def: any, opts: { collide: boolean?, castShadow: boolean?, attachments: { [string]: string }?, camo: string? }?): Model
@@ -72,6 +85,19 @@ function WeaponModel.build(def: any, opts: { collide: boolean?, castShadow: bool
 		if not (hasMag and spec.name == "Magazine") then
 			addPart(model, grip, spec, spec.offset, opts):SetAttribute("WeaponBody", true)
 		end
+	end
+
+	-- ForgeGUI mesh over the body parts when one is published (attachments stay part-built)
+	local skinKey = "Weapon." .. def.id
+	if ModelSkin.template(skinKey) then
+		local body: { BasePart } = {}
+		for _, child in model:GetChildren() do
+			if child:IsA("BasePart") and child:GetAttribute("WeaponBody") then
+				table.insert(body, child)
+			end
+		end
+		local skinOpts: ModelSkin.Options = { frame = grip.CFrame, weldTo = grip, flip = Assets.ModelFlip[skinKey], parent = model }
+		ModelSkin.dress(body, skinKey, skinOpts)
 	end
 
 	local effective = WeaponStats.resolve(def, selection, Attachments)
